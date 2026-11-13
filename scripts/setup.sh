@@ -1,0 +1,146 @@
+#!/bin/sh -e
+
+DEBIAN_FRONTEND=noninteractive
+DEBCONF_NONINTERACTIVE_SEEN=true
+
+# Faster apt configuration
+echo 'force-confdef' >> /etc/dpkg/dpkg.cfg
+echo 'force-confold' >> /etc/dpkg/dpkg.cfg
+
+echo 'tzdata tzdata/Areas select Etc' | debconf-set-selections
+echo 'tzdata tzdata/Zones/Etc select UTC' | debconf-set-selections
+echo "locales locales/default_environment_locale select en_US.UTF-8" | debconf-set-selections
+echo "locales locales/locales_to_be_generated multiselect en_US.UTF-8 UTF-8" | debconf-set-selections
+rm -f "/etc/locale.gen"
+
+# Single apt update, upgrade, and install to reduce overhead
+apt update -qqy
+apt upgrade -qqy --with-new-pkgs
+apt install -qqy --no-install-recommends \
+    7zip \
+    bash-completion \
+    bc \
+    bridge-utils \
+    build-essential \
+    curl \
+    ca-certificates \
+    dnsmasq \
+    file \
+    git \
+    gpiod \
+    hostapd \
+    iptables \
+    iw \
+    libconfig11 \
+    libconfig-dev \
+    libc6-dev \
+    linux-libc-dev \
+    locales \
+    minicom \
+    mobile-broadband-provider-info \
+    modemmanager \
+    netcat-traditional \
+    net-tools \
+    network-manager \
+    nftables \
+    openssh-server \
+    python3 \
+    qrtr-tools \
+    rfkill \
+    rmtfs \
+    ruby \
+    socat \
+    sudo \
+    systemd-timesyncd \
+    tor \
+    tzdata \
+    unzip \
+    vim \
+    wget \
+    wireguard-tools \
+    wpasupplicant \
+    zram-tools
+
+# Cleanup in one go
+apt autoremove -qqy
+apt clean
+rm -rf /var/lib/apt/lists/*
+rm -f /etc/machine-id
+rm -f /var/lib/dbus/machine-id
+rm /etc/ssh/ssh_host_*
+find /var/log -type f -delete
+
+passwd -dl root
+
+# Add user
+adduser --disabled-password --comment "" user
+# Set password
+passwd user << EOD
+1
+1
+EOD
+# Add user to sudo group
+usermod -aG sudo user
+
+cat <<EOF >>/etc/bash.bashrc
+
+alias ls='ls --color=auto -lh'
+alias ll='ls --color=auto -lhA'
+alias l='ls --color=auto -l'
+alias cl='clear'
+alias ip='ip --color'
+alias bridge='bridge -color'
+alias free='free -h'
+alias df='df -h'
+alias du='du -hs'
+
+export PS1='\[\e[0;36m\]\u@\h\[\e[m\] \[\e[0;34m\]\W\[\e[m\]\$ '
+
+EOF
+
+cat <<EOF >> /etc/systemd/journald.conf
+SystemMaxUse=300M
+SystemKeepFree=1G
+EOF
+
+# install dnsproxy (as a systemd service) and integrate with systemd-resolved
+bash /install_dnsproxy.sh systemd
+
+# Ensure NetworkManager and systemd-resolved are enabled and managing DNS (offline enable inside chroot)
+systemctl enable NetworkManager || true
+systemctl enable systemd-resolved || true
+ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
+# Ensure DHCP/DNS for USB and WIFI is active (for clients on br0)
+systemctl enable dnsmasq
+
+# Enable nftables
+systemctl enable nftables
+
+# Enable hostapd for WiFi AP. The drop-in in hostapd.service.d also starts it
+# whenever wlan0 (re)appears, e.g. after a WCNSS firmware restart.
+systemctl enable hostapd
+
+# wlan0 is an AP only. wpa_supplicant/NetworkManager background scans on it
+# crash the WCNSS firmware (wlan0 vanishes, hostapd stops) - keep them off it.
+systemctl disable wpa_supplicant || true
+
+# Web admin page on http://192.168.100.1/ (installed by debootstrap.sh unless WITH_ADMIN=0)
+if [ -f /etc/systemd/system/openstick-admin.service ]; then
+    systemctl enable openstick-admin
+fi
+
+# Make sure ModemManager is enabled for LTE
+systemctl enable ModemManager
+systemctl enable rmtfs # unsure if needed i forgot why i added it. But builds take a long time so i don't want to remove it now
+
+# Time
+systemctl enable systemd-timesyncd
+
+systemctl mask systemd-networkd-wait-online.service
+
+# Prevent the accidental shutdown by power button
+sed -i 's/^#HandlePowerKey=poweroff/HandlePowerKey=ignore/' /etc/systemd/logind.conf
+
+# IPv4/IPv6 forwarding: /etc/sysctl.d/99-openstick-forward.conf (copied by
+# debootstrap.sh). Debian 13 (trixie) no longer applies /etc/sysctl.conf.

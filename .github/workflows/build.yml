@@ -1,0 +1,59 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      board:
+        description: Board profile (decides the lk2nd button GPIO and the kernel devicetree)
+        type: choice
+        default: jz01-45-v33
+        options:
+          - jz01-45-v33
+          - uz801
+          - ufi001c
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    env:
+      BOARD: ${{ inputs.board }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # sudo drops the environment, so BOARD is passed explicitly to every script.
+      - name: Install dependencies
+        run: sudo env BOARD="$BOARD" sh -e scripts/install_deps.sh
+
+      - name: Build hyp and aboot firmware
+        run: sudo env BOARD="$BOARD" sh -e scripts/build_hyp_aboot.sh
+
+      - name: Extract firmware
+        run: sudo env BOARD="$BOARD" sh -e scripts/extract_fw.sh
+
+      - name: Create rootfs
+        run: sudo env BOARD="$BOARD" sh -e scripts/debootstrap.sh
+
+      - name: Build gadget-tool
+        run: sudo env BOARD="$BOARD" sh -e scripts/build_gt.sh
+
+      - name: Create images
+        run: sudo env BOARD="$BOARD" sh -e scripts/build_images.sh
+
+      - name: Checksums
+        run: |
+          cd files
+          sudo sh -c 'sha256sum * > SHA256SUMS'
+          ls -la
+          cat SHA256SUMS
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-stick-${{ inputs.board }}
+          path: files/*

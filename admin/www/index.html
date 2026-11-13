@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenStick 관리</title>
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+
+<!-- 로그인 / 최초 설정 -->
+<section id="auth" class="auth hidden">
+  <form id="auth-form" class="card auth-card">
+    <h1>OpenStick 관리</h1>
+    <p id="auth-desc" class="muted">관리자 비밀번호를 입력하세요.</p>
+    <input id="auth-pw" type="password" autocomplete="current-password" placeholder="비밀번호" required>
+    <input id="auth-pw2" class="hidden" type="password" autocomplete="new-password" placeholder="비밀번호 확인">
+    <button type="submit" class="primary">로그인</button>
+    <p id="auth-err" class="error"></p>
+  </form>
+</section>
+
+<!-- 본 화면 -->
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="brand">OpenStick <span id="mock-badge" class="badge hidden">모의</span></div>
+    <div class="top-status">
+      <span id="top-signal" class="bars" aria-label="신호"><i></i><i></i><i></i><i></i></span>
+      <span id="top-op">-</span>
+    </div>
+    <button id="logout" class="ghost">로그아웃</button>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="dash" class="active">대시보드</button>
+    <button data-tab="sms">문자 <span id="sms-badge" class="count hidden"></span></button>
+    <button data-tab="wifi">WiFi</button>
+    <button data-tab="wan">인터넷</button>
+    <button data-tab="clients">접속 기기</button>
+    <button data-tab="diag">진단</button>
+    <button data-tab="device">기기 관리</button>
+  </nav>
+
+  <main>
+    <!-- 대시보드 -->
+    <section id="tab-dash" class="tab">
+      <div class="grid">
+        <div class="card">
+          <h2>LTE 신호</h2>
+          <div class="big"><span id="d-bars" class="bars big-bars"><i></i><i></i><i></i><i></i></span> <span id="d-quality">-</span></div>
+          <dl class="kv">
+            <dt>RSRP</dt><dd id="d-rsrp">-</dd>
+            <dt>RSRQ</dt><dd id="d-rsrq">-</dd>
+            <dt>SINR</dt><dd id="d-snr">-</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h2>인터넷</h2>
+          <div class="big" id="d-conn">-</div>
+          <dl class="kv">
+            <dt>통신사</dt><dd id="d-op">-</dd>
+            <dt>망</dt><dd id="d-tech">-</dd>
+            <dt>WAN IP</dt><dd id="d-ip">-</dd>
+            <dt>APN</dt><dd id="d-apn">-</dd>
+            <dt>SIM</dt><dd id="d-sim">-</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h2>속도</h2>
+          <div class="speed"><span>↓</span><b id="d-down">-</b></div>
+          <div class="speed"><span>↑</span><b id="d-up">-</b></div>
+          <p class="muted small">이번 LTE 연결 사용량 <span id="d-total">-</span></p>
+        </div>
+        <div class="card">
+          <h2>시스템</h2>
+          <dl class="kv">
+            <dt>접속 기기</dt><dd id="d-clients">-</dd>
+            <dt>가동 시간</dt><dd id="d-uptime">-</dd>
+            <dt>메모리</dt><dd id="d-mem">-</dd>
+            <dt>부하</dt><dd id="d-load">-</dd>
+            <dt>온도</dt><dd id="d-temp">-</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h2>데이터 사용량</h2>
+          <div class="big" id="d-usage">-</div>
+          <div class="meter"><i id="d-usage-bar"></i></div>
+          <dl class="kv">
+            <dt>오늘</dt><dd id="d-usage-today" class="nw">-</dd>
+            <dt>기간</dt><dd id="d-usage-period" class="nw">-</dd>
+          </dl>
+          <p class="small" id="d-usage-warn"></p>
+        </div>
+        <div class="card">
+          <h2>저장공간</h2>
+          <dl class="kv">
+            <dt>디스크 여유</dt><dd id="d-disk" class="nw">-</dd>
+            <dt>문자</dt><dd id="d-msgs" class="nw">-</dd>
+            <dt>MMS 첨부</dt><dd id="d-media" class="nw">-</dd>
+          </dl>
+          <p class="muted small" id="d-prune"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 문자 -->
+    <section id="tab-sms" class="tab hidden">
+      <form id="sms-form" class="card form">
+        <h2>문자 보내기 <span id="sms-kind" class="tag hidden">MMS</span></h2>
+        <label>받는 번호<input name="number" inputmode="tel" autocomplete="off" placeholder="01012345678" required></label>
+        <label id="sms-subj-row" class="hidden">제목<input name="subject" maxlength="40" autocomplete="off" placeholder="(선택)"></label>
+        <label>내용<textarea name="text" rows="3" maxlength="4000"></textarea></label>
+        <p class="muted small" id="sms-count">0자</p>
+        <div class="bulk">
+          <button type="button" id="sms-attach" class="ghost small">📎 사진·파일 첨부</button>
+          <button type="button" id="sms-subj-btn" class="ghost small">제목 넣기</button>
+          <span class="spacer"></span>
+          <span class="muted small" id="sms-attinfo"></span>
+        </div>
+        <input type="file" id="sms-files" multiple accept="image/*,video/*,audio/*,.pdf" hidden>
+        <ul id="sms-atts" class="atts"></ul>
+        <button class="primary">보내기</button>
+        <p class="result"></p>
+      </form>
+      <div class="card">
+        <h2>받은/보낸 문자 <span><button id="sms-readall" class="ghost small">모두 읽음</button> <button id="sms-refresh" class="ghost small">새로고침</button></span></h2>
+        <p class="muted small" id="sms-info"></p>
+        <div class="bulk">
+          <label class="check small"><input type="checkbox" id="sms-selall"> 전체 선택</label>
+          <button id="sms-delsel" class="ghost small" disabled>선택 삭제</button>
+          <span class="spacer"></span>
+          <select id="sms-olddays" class="small-select">
+            <option value="30">30일</option><option value="90" selected>90일</option>
+            <option value="180">180일</option><option value="365">1년</option>
+          </select>
+          <button id="sms-delold" class="ghost small">지난 문자 삭제</button>
+        </div>
+        <ul id="sms-list" class="msgs"></ul>
+        <button id="sms-more" class="ghost hidden">더 보기</button>
+      </div>
+    </section>
+
+    <!-- WiFi -->
+    <section id="tab-wifi" class="tab hidden">
+      <form id="wifi-form" class="card form">
+        <h2>WiFi 설정</h2>
+        <label>WiFi 이름 (SSID)<input name="ssid" maxlength="32" required></label>
+        <label>새 비밀번호 <span class="muted small">(바꿀 때만 입력, 8~63자)</span>
+          <input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="63"></label>
+        <label>보안 방식
+          <select name="security"><option>WPA2</option><option>WPA2/WPA3</option></select></label>
+        <label>채널
+          <select name="channel"></select></label>
+        <label>최대 접속 수 <span class="muted small">(0 = 제한 없음)</span>
+          <input name="max_clients" type="number" min="0" max="32"></label>
+        <label class="check"><input name="hidden" type="checkbox"> SSID 숨기기</label>
+        <label class="check"><input name="isolate" type="checkbox"> 기기 간 통신 차단 (AP 격리)</label>
+        <p class="warn">저장하면 WiFi가 재시작되어 WiFi로 접속 중인 기기는 잠깐 끊깁니다. 이름/비밀번호를 바꾸면 새 정보로 다시 연결하세요.</p>
+        <button class="primary">저장</button>
+        <p class="result"></p>
+      </form>
+    </section>
+
+    <!-- 인터넷 -->
+    <section id="tab-wan" class="tab hidden">
+      <form id="data-form" class="card form">
+        <h2>데이터 연결</h2>
+        <label class="check"><input name="data_enabled" type="checkbox"> 모바일 데이터 사용</label>
+        <label class="check"><input name="roaming_allowed" type="checkbox"> 로밍 중 데이터 허용</label>
+        <button class="primary">저장</button>
+        <p class="result"></p>
+      </form>
+
+      <form id="usage-form" class="card form">
+        <h2>데이터 사용량</h2>
+        <dl class="kv" id="usage-info"></dl>
+        <div class="days" id="usage-days"></div>
+        <label>월 한도 (GB) <span class="muted small">(0 = 없음)</span><input name="cap_gb" type="number" min="0" max="10000" step="0.1"></label>
+        <label>매월 초기화일<input name="reset_day" type="number" min="1" max="28"></label>
+        <label>경고 기준 (%)<input name="warn_pct" type="number" min="10" max="100"></label>
+        <label class="check"><input name="block" type="checkbox"> 한도 초과 시 접속 기기 인터넷 차단 <span class="muted small">(동글 자체·문자는 유지)</span></label>
+        <p class="muted small">동글이 직접 센 값이라 통신사 집계와 몇 % 차이가 날 수 있습니다.</p>
+        <div class="row"><button class="primary">저장</button><button type="button" id="usage-reset" class="ghost">사용량 기록 초기화</button></div>
+        <p class="result"></p>
+      </form>
+
+      <form id="apn-form" class="card form">
+        <h2>APN</h2>
+        <dl class="kv" id="bearer-info"></dl>
+        <label class="radio"><input type="radio" name="apn_mode" value="auto"> 자동 <span class="muted small">(SIM 통신사 기준 자동 선택 — 권장)</span></label>
+        <label class="radio"><input type="radio" name="apn_mode" value="manual"> 수동</label>
+        <fieldset id="apn-manual">
+          <label>APN<input name="apn" maxlength="63" placeholder="예: alwayson.ktfwing.com"></label>
+          <label>사용자명<input name="username" maxlength="64" autocomplete="off"></label>
+          <label>비밀번호<input name="password" type="password" maxlength="64" autocomplete="new-password"></label>
+        </fieldset>
+        <label>IP 타입
+          <select name="ip_type"><option value="ipv4v6">IPv4 + IPv6</option><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option></select></label>
+        <p class="warn">저장하면 LTE를 다시 연결합니다(수십 초). 연결에 실패하면 이전 설정으로 자동 복구됩니다.</p>
+        <button class="primary">저장 후 재연결</button>
+        <p class="result"></p>
+      </form>
+    </section>
+
+    <!-- 접속 기기 -->
+    <section id="tab-clients" class="tab hidden">
+      <div class="card">
+        <h2>접속 기기 <button id="clients-refresh" class="ghost small">새로고침</button></h2>
+        <table class="table">
+          <thead><tr><th>이름</th><th>IP</th><th>MAC</th><th>연결</th><th>접속 시간</th><th>인터넷</th></tr></thead>
+          <tbody id="clients-body"></tbody>
+        </table>
+        <p class="muted small">차단하면 그 기기의 인터넷만 막힙니다(관리페이지 접속은 가능). iPhone 등 "비공개 Wi-Fi 주소"를 쓰는 기기는 MAC이 바뀌면 차단이 풀립니다.</p>
+      </div>
+      <div class="card" id="blocked-card">
+        <h2>차단 목록 (현재 미접속)</h2>
+        <ul id="blocked-list" class="plain"></ul>
+      </div>
+    </section>
+
+    <!-- 진단 -->
+    <section id="tab-diag" class="tab hidden">
+      <form id="dns-form" class="card form">
+        <h2>DNS / 광고차단</h2>
+        <p class="muted small">접속 기기의 DNS는 동글(192.168.100.1)이 대신 조회합니다. 여기서 동글이 사용할 상위 DNS를 고릅니다.</p>
+        <div id="dns-presets"></div>
+        <button class="primary">적용</button>
+        <p class="result"></p>
+      </form>
+      <form id="diag-form" class="card form">
+        <h2>네트워크 진단</h2>
+        <label>대상 (도메인 또는 IP)<input name="host" value="google.com" autocomplete="off"></label>
+        <div class="row">
+          <button type="button" class="ghost" data-kind="ping">핑</button>
+          <button type="button" class="ghost" data-kind="lookup">DNS 조회</button>
+          <button type="button" class="ghost" data-kind="traceroute">경로 추적</button>
+        </div>
+        <pre id="diag-out" class="out hidden"></pre>
+      </form>
+      <form id="speed-form" class="card form">
+        <h2>속도 측정 (다운로드)</h2>
+        <p class="warn">실제 LTE 데이터를 사용합니다(선택한 크기만큼 요금제에서 차감).</p>
+        <label>크기<select name="mb"><option value="5">5 MB</option><option value="10" selected>10 MB</option><option value="25">25 MB</option></select></label>
+        <button class="primary">측정</button>
+        <p class="result"></p>
+      </form>
+    </section>
+
+    <!-- 기기 관리 -->
+    <section id="tab-device" class="tab hidden">
+      <div class="card">
+        <h2>기기 정보</h2>
+        <dl class="kv" id="device-info"></dl>
+      </div>
+      <div class="card form" id="sys-card">
+        <h2>표시등 · 시간</h2>
+        <label class="check"><input type="checkbox" id="leds-on"> 표시등 켜기 <span class="muted small">(빨강 전원 · 초록 WiFi · 파랑 LTE 연결)</span></label>
+        <label>시간대
+          <select id="tz">
+            <option>Asia/Seoul</option><option>UTC</option><option>Asia/Tokyo</option><option>Asia/Shanghai</option>
+            <option>Europe/London</option><option>America/New_York</option><option>America/Los_Angeles</option>
+          </select></label>
+        <p class="muted small" id="time-info"></p>
+      </div>
+      <div class="card">
+        <h2>서비스 상태 <button id="svc-refresh" class="ghost small">새로고침</button></h2>
+        <table class="table"><tbody id="svc-body"></tbody></table>
+      </div>
+      <div class="card">
+        <h2>시스템 로그</h2>
+        <div class="row">
+          <select id="log-unit">
+            <option value="admin">관리페이지</option><option value="modem">모뎀(ModemManager)</option>
+            <option value="network">네트워크(NetworkManager)</option><option value="wifi">WiFi(hostapd)</option>
+            <option value="dhcp">DHCP(dnsmasq)</option><option value="dns">DNS(dnsproxy)</option>
+            <option value="firewall">방화벽(nftables)</option><option value="kernel">커널</option><option value="all">전체</option>
+          </select>
+          <select id="log-lines"><option>100</option><option selected>200</option><option>500</option></select>
+          <button id="log-load" class="ghost">불러오기</button>
+        </div>
+        <pre id="log-out" class="out hidden"></pre>
+      </div>
+      <form id="tg-form" class="card form">
+        <h2>문자 → 텔레그램 전달</h2>
+        <p class="muted small">문자를 받으면 텔레그램 봇으로 바로 보내줍니다. 봇은 <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>에서 만들고, 방 ID는 봇과의 대화나 그룹의 chat id를 넣으세요.</p>
+        <label class="check"><input type="checkbox" name="enabled"> 전달 사용</label>
+        <label>봇 토큰<input name="token" autocomplete="off" placeholder="123456789:ABCdef... (저장됨, 바꿀 때만 입력)"></label>
+        <label>방 ID<input name="chat_id" autocomplete="off" inputmode="text" placeholder="예: 123456789 또는 -1001234567890"></label>
+        <label class="check"><input type="checkbox" name="send_media"> 사진도 함께 전송(MMS)</label>
+        <div class="row">
+          <button class="primary">저장</button>
+          <button type="button" id="tg-test" class="ghost">테스트 전송</button>
+        </div>
+        <p class="result"></p>
+      </form>
+      <form id="thermal-form" class="card form">
+        <h2>발열 알림 <span id="thermal-now" class="tag">-</span></h2>
+        <p class="muted small">온도가 설정값을 넘으면 텔레그램으로 경고를 보냅니다. 임계 온도(약 95°C)에 도달하면 기기가 자동으로 꺼지니, 그 전에 알 수 있습니다. (위 텔레그램 설정 필요)</p>
+        <label class="check"><input type="checkbox" name="enabled"> 발열 알림 사용</label>
+        <label>경고 온도 (°C) <span class="muted small">60~90</span><input name="warn_c" type="number" min="60" max="90" step="1" value="80"></label>
+        <p class="muted small" id="thermal-zones"></p>
+        <button class="primary">저장</button>
+        <p class="result"></p>
+      </form>
+      <form id="pw-form" class="card form">
+        <h2>관리자 비밀번호 변경</h2>
+        <label>현재 비밀번호<input name="old" type="password" autocomplete="current-password" required></label>
+        <label>새 비밀번호 <span class="muted small">(8~64자)</span><input name="new" type="password" autocomplete="new-password" minlength="8" maxlength="64" required></label>
+        <label>새 비밀번호 확인<input name="new2" type="password" autocomplete="new-password" required></label>
+        <button class="primary">변경</button>
+        <p class="result"></p>
+      </form>
+      <div class="card">
+        <h2>재부팅</h2>
+        <p class="muted">약 1분 후 다시 접속됩니다.</p>
+        <button id="reboot" class="danger">재부팅</button>
+        <p class="result" id="reboot-result"></p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+</body>
+</html>
