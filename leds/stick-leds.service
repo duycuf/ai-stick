@@ -1,0 +1,17 @@
+[Unit]
+Description=AI Stick status LEDs (green = internet, blue = assistant, red = fault)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/stick-leds/stick-leds.py
+Restart=always
+RestartSec=5
+Nice=10
+MemoryMax=30M
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
