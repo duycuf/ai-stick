@@ -3,7 +3,16 @@
 Debian on a $10 4G USB dongle (Qualcomm MSM8916), built to host a personal AI assistant that you talk to over Telegram.
 
 > [!WARNING]
-> **Work in progress.** This repo currently only builds the firmware image. The image has not been flashed and tested from this repo yet. Flashing can brick the dongle: back up the whole eMMC first.
+> **Work in progress.** Flashing erases the stock firmware and can brick the dongle: back up the whole eMMC first.
+
+## Status
+
+Tested on one JZ01-45-V33 dongle (2026-11-13), image built by this repo's workflow and flashed over EDL from Windows:
+
+- Boots Debian 13 (trixie), kernel 6.12.1, and comes back after a reboot.
+- WiFi access point, USB networking (RNDIS), SSH and the admin page work.
+- The modem is detected with its original IMEI. LTE data and SMS are **not tested yet** (no SIM inserted).
+- The AI assistant is not part of the image yet.
 
 ## Target hardware
 
@@ -27,6 +36,27 @@ git clone --recurse-submodules https://github.com/duycuf/ai-stick.git
 cd ai-stick
 sudo BOARD=jz01-45-v33 ./build.sh
 ```
+
+## Flash over EDL (no fastboot)
+
+[`flash/flash_edl.py`](flash/flash_edl.py) writes the built image through Qualcomm EDL with [bkerler/edl](https://github.com/bkerler/edl). It builds a full-disk partition table for your eMMC size, un-sparses `boot` and `rootfs`, saves the device-unique partitions right before flashing, writes everything, reads every write back and compares it.
+
+```shell
+# files/ holds the build artifact. Nothing is written to the device by these two:
+python flash/flash_edl.py prepare --sectors 7733248   # eMMC size from `edl printgpt`
+python flash/flash_edl.py plan                        # prints every edl command
+
+# with the dongle in EDL mode (05c6:9008):
+python flash/flash_edl.py flash --edl "python C:/edl/edl.py" \
+    --loader C:/edl/Loaders/prog_emmc_firehose_8916.mbn --yes-erase-device
+```
+
+Notes from doing this on Windows 11:
+
+- Bind `QHSUSB__BULK` to **WinUSB** with Zadig. With libusb-win32, reads stalled and dropped data.
+- Enter EDL with `adb reboot edl` from the stock firmware, or hold the button while plugging the dongle in. Check that the button method works before you erase the stock firmware: afterwards it is the way back.
+- `edl` could only run one command per EDL session until the Sahara/Firehose mode probe was given more time to answer (a small local patch to `edlclient/Library/sahara.py`).
+- After the last write, `edl reset` may need to be run once more by hand.
 
 ## Credits
 
