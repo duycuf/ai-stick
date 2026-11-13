@@ -12,7 +12,17 @@ Tested on one JZ01-45-V33 dongle (2026-11-13), image built by this repo's workfl
 - Boots Debian 13 (trixie), kernel 6.12.1, and comes back after a reboot.
 - WiFi access point, USB networking (RNDIS), SSH and the admin page work.
 - The modem is detected with its original IMEI. LTE data and SMS are **not tested yet** (no SIM inserted).
-- The AI assistant is not part of the image yet.
+- The stick can join an existing 2.4 GHz WiFi network instead of broadcasting one: **WiFi → Join a WiFi network** on the admin page. A failed join puts the access point back. No SIM is needed this way.
+- The AI assistant is not part of the image yet. On the test stick it runs as a separate install (ZeroClaw + a Telegram bot), talking to a model server through [`router/`](router/README.md).
+
+## What is in here besides the image builder
+
+| Folder | What it is |
+|---|---|
+| [`admin/`](admin/README.md) | The web admin page on `http://192.168.100.1/` (USB cable). Now also joins WiFi networks and shows the WiFi uplink on the dashboard |
+| [`router/`](router/README.md) | `stick-router`: one OpenAI-compatible endpoint in front of several model providers, with fallback. A single 6 MB Go binary, about 13 MB of RAM |
+| [`leds/`](leds/stick-leds.py) | Status LEDs: blue = network, green = assistant busy, red = trouble |
+| [`flash/`](flash/flash_edl.py) | Flash the image over EDL, no fastboot needed |
 
 ## Target hardware
 
