@@ -3,7 +3,10 @@
 CHROOT=${CHROOT=$(pwd)/rootfs}
 RELEASE=${RELEASE=stable}
 HOST_NAME=${HOST_NAME=openstick}
-KERNEL_APK=${KERNEL_APK=linux-postmarketos-qcom-msm8916-6.12.1-r6.apk}
+PMOS_MIRROR=${PMOS_MIRROR=http://mirror.postmarketos.org/postmarketos/main/aarch64}
+KERNEL_PKG=linux-postmarketos-qcom-msm8916
+# Leave KERNEL_APK empty to use whatever version the mirror currently ships.
+KERNEL_APK=${KERNEL_APK=}
 WITH_ADMIN=${WITH_ADMIN=1}
 . scripts/board.sh
 
@@ -108,10 +111,25 @@ chmod +x ${CHROOT}/usr/sbin/wifi-ap.sh
 cp -a scripts/msm-firmware-loader.sh ${CHROOT}/usr/sbin
 
 # install kernel
-# (r2 was removed from the mirror; check APKINDEX for the current version and
-#  override with KERNEL_APK=... if this one disappears too)
-wget -O - https://mirror.postmarketos.org/postmarketos/master/aarch64/${KERNEL_APK} \
-    | tar xkzf - -C ${CHROOT} --exclude=.PKGINFO --exclude=.SIGN* 2>/dev/null
+# The mirror only keeps the current revision of the package, so a pinned file
+# name breaks every time postmarketOS rebuilds the kernel. Unless KERNEL_APK is
+# set explicitly, read the current version from the mirror's APKINDEX.
+if [ -z "${KERNEL_APK}" ]; then
+    KERNEL_VER=$(wget -q -O - ${PMOS_MIRROR}/APKINDEX.tar.gz | tar xzOf - APKINDEX \
+        | awk -v pkg="${KERNEL_PKG}" 'BEGIN { RS=""; FS="\n" }
+            { name=""; ver="";
+              for (i = 1; i <= NF; i++) {
+                  if ($i ~ /^P:/) name = substr($i, 3);
+                  if ($i ~ /^V:/) ver = substr($i, 3);
+              }
+              if (name == pkg) { print ver; exit } }')
+    test -n "${KERNEL_VER}"
+    KERNEL_APK=${KERNEL_PKG}-${KERNEL_VER}.apk
+fi
+echo "Kernel package: ${KERNEL_APK}"
+wget -O /tmp/${KERNEL_APK} ${PMOS_MIRROR}/${KERNEL_APK}
+tar xkzf /tmp/${KERNEL_APK} -C ${CHROOT} --exclude=.PKGINFO --exclude=.SIGN* 2>/dev/null
+rm -f /tmp/${KERNEL_APK}
 
 # The pmOS package ships an empty modules.alias and a modules.dep without
 # dependencies (postmarketOS regenerates them on install). Without this no
