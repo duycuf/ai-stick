@@ -1,7 +1,7 @@
-"""실제 기기 백엔드: mmcli / nmcli / hostapd / sysfs.
+"""Real device backend: mmcli / nmcli / hostapd / sysfs.
 
-원칙: 셸을 쓰지 않고 인자 리스트로만 subprocess 실행, 입력은 전부 검증.
-검증 실패는 ValueError (server.py가 400으로 변환).
+Principle: no shell, subprocess runs with argument lists only, all input is validated.
+Validation failures raise ValueError (server.py turns them into 400).
 """
 import json
 import os
@@ -14,15 +14,15 @@ import netctl
 import sms
 import systools
 
-LTE_CONN = "lte"                 # NetworkManager 연결 이름
+LTE_CONN = "lte"                 # NetworkManager connection name
 HOSTAPD_CONF = "/etc/hostapd/hostapd.conf"
 LEASES = "/var/lib/misc/dnsmasq.leases"
 WLAN_IF = "wlan0"
 LAN_BRIDGE = "br0"
-THERMAL_POLL = 30               # 발열 모니터 주기(초)
-THERMAL_WARN_DEFAULT = 80       # 기본 경고 온도(°C); 임계 95°C 전에 알린다
-THERMAL_CRIT = 95               # 하드웨어 보호 셧다운 온도(°C)
-THERMAL_HYST = 6                # 회복 알림 이력(경고 해제 폭, °C)
+THERMAL_POLL = 30               # thermal monitor interval (seconds)
+THERMAL_WARN_DEFAULT = 80       # default warning temperature (°C); alerts before the 95°C critical point
+THERMAL_CRIT = 95               # hardware protection shutdown temperature (°C)
+THERMAL_HYST = 6                # recovery alert hysteresis (margin to clear the warning, °C)
 
 _apn_lock = threading.Lock()
 _wifi_lock = threading.Lock()
@@ -31,7 +31,7 @@ _wifi_lock = threading.Lock()
 def run(args, timeout=15, check=True):
     p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     if check and p.returncode != 0:
-        raise RuntimeError(f"{args[0]} 실패: {(p.stderr or p.stdout).strip()[:300]}")
+        raise RuntimeError(f"{args[0]} failed: {(p.stderr or p.stdout).strip()[:300]}")
     return p.stdout
 
 
@@ -43,7 +43,7 @@ def mmcli_json(*args, timeout=15):
 
 
 def _v(x):
-    """mmcli의 '--' 등 빈 값을 None으로."""
+    """Turn empty mmcli values such as '--' into None."""
     return None if x in (None, "", "--") else x
 
 
@@ -64,7 +64,7 @@ def _tg_send(token, chat_id, text):
         code = out.rsplit("\n", 1)[-1].strip()
         if code == "200":
             return True, None
-        return False, f"HTTP {code or '연결 실패'}: {out[:160]}"
+        return False, f"HTTP {code or 'connection failed'}: {out[:160]}"
     except Exception as e:  # noqa: BLE001
         return False, str(e)[:160]
 
@@ -74,7 +74,7 @@ def _tg_send_photo(token, chat_id, path):
         run(["curl", "-s", "-m", "60", f"https://api.telegram.org/bot{token}/sendPhoto",
              "-F", f"chat_id={chat_id}", "-F", f"photo=@{path}",
              "-o", "/dev/null"], timeout=70, check=False)
-    except Exception:  # noqa: BLE001 - 사진 전송 실패는 본문 알림을 막지 않는다
+    except Exception:  # noqa: BLE001 - a failed photo upload must not block the text alert
         pass
 
 
@@ -87,20 +87,20 @@ def _num(x):
 
 class Backend:
     def __init__(self):
-        # 문자: 수신 수집기(백그라운드 스레드) + sqlite 보관
+        # Messages: inbound collector (background thread) + sqlite storage
         self.msgs = sms.Messages()
         self.settings = netctl.Settings("/var/lib/openstick-admin/settings.json")
-        self.msgs.on_inbound = self._notify_telegram      # 수신 시 텔레그램 전달(설정 시)
+        self.msgs.on_inbound = self._notify_telegram      # forward to Telegram on receive (if configured)
         threading.Thread(target=self._thermal_loop, name="thermal", daemon=True).start()
-        self.net = netctl.NetCtl(self.settings)            # 데이터 사용량, 기기 차단 (nft inet osa)
+        self.net = netctl.NetCtl(self.settings)            # data usage, device blocking (nft inet osa)
         self.sys = systools.SysTools(self.settings, wan_connected=self._wan_up)
-        # 신호 상세값(RSRP 등)은 주기 설정을 해야 갱신됨
+        # detailed signal values (RSRP etc.) only refresh once a polling rate is set
         try:
             run(["mmcli", "-m", "any", "--signal-setup=10"], timeout=10, check=False)
         except Exception:  # noqa: BLE001
             pass
 
-    # ================= 대시보드 =================
+    # ================= Dashboard =================
     def status(self):
         m = mmcli_json("-m", "any").get("modem", {})
         g, t = m.get("generic", {}), m.get("3gpp", {})
@@ -121,11 +121,11 @@ class Backend:
             "wan": {
                 "connected": bool(bearer and bearer["connected"]),
                 "ipv4": bearer and bearer["ipv4"], "apn": bearer and bearer["apn"],
-                # wwan0(bam-dmux)는 sysfs 카운터가 0이라 ModemManager 베어러 통계를 씀(이번 연결 기준)
+                # wwan0 (bam-dmux) sysfs counters stay 0, so use ModemManager bearer stats (for this connection)
                 "rx_bytes": bearer["rx_bytes"] if bearer else 0,
                 "tx_bytes": bearer["tx_bytes"] if bearer else 0,
                 "connected_sec": bearer["duration"] if bearer else None,
-                # 실시간 속도용: 접속 기기 쪽 브리지 카운터 (br0 tx = 기기로 내려간 양 = 다운로드)
+                # for live speed: bridge counters on the client side (br0 tx = bytes sent to clients = download)
                 "lan_down_bytes": int(_read(f"/sys/class/net/{LAN_BRIDGE}/statistics/tx_bytes", "0") or 0),
                 "lan_up_bytes": int(_read(f"/sys/class/net/{LAN_BRIDGE}/statistics/rx_bytes", "0") or 0),
                 "ts": time.time(),
@@ -139,11 +139,11 @@ class Backend:
 
     def _sim_state(self, g):
         if not _v(g.get("sim")):
-            return "없음"
+            return "None"
         lock = _v(g.get("unlock-required"))
         if lock and lock not in ("sim-pin2", "none"):
-            return f"잠김({lock})"
-        return "정상"
+            return f"Locked ({lock})"
+        return "OK"
 
     def _active_bearer(self, paths):
         for p in paths:
@@ -187,14 +187,14 @@ class Backend:
             "temp_c": max(temps.values()) if temps else None,
         }
 
-    # ================= 접속 기기 =================
+    # ================= Connected devices =================
     def clients(self):
         leases = {}
         for line in (_read(LEASES, "") or "").splitlines():
             parts = line.split()
             if len(parts) >= 4:
                 leases[parts[1].lower()] = {"ip": parts[2], "name": None if parts[3] == "*" else parts[3]}
-        # WiFi 접속 기기: iw station dump (hostapd ctrl_interface 없이도 동작)
+        # WiFi clients: iw station dump (works without hostapd ctrl_interface)
         wifi, cur = {}, None
         try:
             out = run(["iw", "dev", WLAN_IF, "station", "dump"], timeout=5, check=False)
@@ -211,7 +211,7 @@ class Backend:
                     wifi[cur]["signal"] = v.split()[0] if v.split() else None
                 elif k == "connected time":
                     wifi[cur]["connected_time"] = v.split()[0] if v.split() else None
-        # 브리지 포트로 접속 경로 판별 (wlan0 = WiFi, usb* = USB)
+        # tell the connection path from the bridge port (wlan0 = WiFi, usb* = USB)
         port = {}
         try:
             for f in json.loads(run(["bridge", "-j", "fdb", "show", "br", LAN_BRIDGE], timeout=5) or "[]"):
@@ -222,7 +222,7 @@ class Backend:
         neigh = {}
         try:
             for n in json.loads(run(["ip", "-j", "neigh", "show", "dev", LAN_BRIDGE], timeout=5) or "[]"):
-                if n.get("lladdr") and ":" not in n.get("dst", ":"):     # IPv4만
+                if n.get("lladdr") and ":" not in n.get("dst", ":"):     # IPv4 only
                     neigh[n["lladdr"].lower()] = {"ip": n["dst"], "state": (n.get("state") or [""])[0]}
         except Exception:  # noqa: BLE001
             pass
@@ -265,7 +265,7 @@ class Backend:
             "security": "WPA2/WPA3" if "SAE" in cfg.get("wpa_key_mgmt", "") else "WPA2",
             "channel": int(cfg.get("channel", "6") or 6),
             "hidden": cfg.get("ignore_broadcast_ssid", "0") != "0",
-            # hostapd 기본값 2007 = 제한 없음 (저장 시에도 0 -> 2007로 씀)
+            # hostapd default 2007 = no limit (on save, 0 is also written as 2007)
             "max_clients": (lambda n: None if n == 0 or n >= 2007 else n)(int(cfg.get("max_num_sta", "0") or 0)),
             "isolate": cfg.get("ap_isolate", "0") == "1",
             "running": run(["systemctl", "is-active", "hostapd"], check=False).strip() == "active",
@@ -276,17 +276,17 @@ class Backend:
         if "ssid" in d:
             ssid = str(d["ssid"])
             if not (1 <= len(ssid.encode()) <= 32) or any(c in ssid for c in "\n\r"):
-                raise ValueError("WiFi 이름은 1~32바이트, 줄바꿈 불가")
+                raise ValueError("WiFi name must be 1-32 bytes, no line breaks")
             changes["ssid"] = ssid
         if d.get("password"):
             pw = str(d["password"])
             if not (8 <= len(pw) <= 63) or not all(32 <= ord(c) < 127 for c in pw):
-                raise ValueError("WiFi 비밀번호는 영문/숫자/기호 8~63자")
+                raise ValueError("WiFi password must be 8-63 letters/digits/symbols")
             changes["wpa_passphrase"] = pw
         if "channel" in d:
             ch = int(d["channel"])
             if not 1 <= ch <= 13:
-                raise ValueError("채널은 1~13")
+                raise ValueError("Channel must be 1-13")
             changes["channel"] = str(ch)
         if "hidden" in d:
             changes["ignore_broadcast_ssid"] = "1" if d["hidden"] else "0"
@@ -295,15 +295,15 @@ class Backend:
         if "max_clients" in d:
             mc = int(d["max_clients"] or 0)
             if not 0 <= mc <= 32:
-                raise ValueError("최대 접속 수는 0(제한없음)~32")
+                raise ValueError("Max clients must be 0 (no limit) to 32")
             changes["max_num_sta"] = str(mc or 2007)
         if "security" in d:
             if d["security"] not in ("WPA2", "WPA2/WPA3"):
-                raise ValueError("보안 방식 오류")
+                raise ValueError("Invalid security mode")
             changes["wpa_key_mgmt"] = "WPA-PSK SAE" if d["security"] == "WPA2/WPA3" else "WPA-PSK"
             changes["ieee80211w"] = "1" if d["security"] == "WPA2/WPA3" else "0"
         if not changes:
-            raise ValueError("변경 사항이 없습니다")
+            raise ValueError("No changes to save")
 
         with _wifi_lock:
             lines = self._hostapd_lines()
@@ -328,7 +328,7 @@ class Backend:
             run(["systemctl", "restart", "hostapd"], timeout=30)
         return {"ok": True, "applied": sorted(k for k in changes if k != "wpa_passphrase") + (["password"] if "wpa_passphrase" in changes else [])}
 
-    # ================= 인터넷(WAN) / APN =================
+    # ================= Internet (WAN) / APN =================
     def _nm_get(self):
         out = run(["nmcli", "-t", "-f",
                    "connection.autoconnect,gsm.apn,gsm.username,gsm.auto-config,gsm.home-only,ipv4.method,ipv6.method",
@@ -360,7 +360,7 @@ class Backend:
         if "data_enabled" in d:
             changes += ["connection.autoconnect", "yes" if d["data_enabled"] else "no"]
         if not changes:
-            raise ValueError("변경 사항이 없습니다")
+            raise ValueError("No changes to save")
         run(["nmcli", "c", "modify", LTE_CONN, *changes])
         if "data_enabled" in d:
             if d["data_enabled"]:
@@ -372,16 +372,16 @@ class Backend:
     def wan_set_apn(self, d):
         mode = d.get("apn_mode")
         if mode not in ("auto", "manual"):
-            raise ValueError("APN 모드 오류")
+            raise ValueError("Invalid APN mode")
         ip_type = d.get("ip_type", "ipv4v6")
         if ip_type not in ("ipv4", "ipv6", "ipv4v6"):
-            raise ValueError("IP 타입 오류")
+            raise ValueError("Invalid IP type")
         apn, user, pw = str(d.get("apn", "")), str(d.get("username", "")), str(d.get("password", ""))
         if mode == "manual" and not re.fullmatch(r"[A-Za-z0-9.\-_]{1,63}", apn):
-            raise ValueError("APN은 영문/숫자/.-_ 1~63자")
+            raise ValueError("APN must be 1-63 letters/digits/.-_")
         for x in (user, pw):
             if len(x) > 64 or any(c in x for c in "\n\r"):
-                raise ValueError("사용자명/비밀번호 형식 오류")
+                raise ValueError("Invalid username/password format")
 
         with _apn_lock:
             prev = self._nm_get()
@@ -396,14 +396,14 @@ class Backend:
             ok = self._reconnect_and_check()
             if ok:
                 return {"ok": True, "rolled_back": False, "bearer": ok}
-            # 실패 → 이전 설정으로 롤백 (비밀번호는 NM에 그대로 남아 있음)
+            # failed -> roll back to the previous settings (the password is still stored in NM)
             run(["nmcli", "c", "modify", LTE_CONN,
                  "gsm.auto-config", prev.get("gsm.auto-config", "yes"),
                  "gsm.apn", prev.get("gsm.apn", ""), "gsm.username", prev.get("gsm.username", ""),
                  "ipv4.method", prev.get("ipv4.method", "auto"), "ipv6.method", prev.get("ipv6.method", "auto")])
             again = self._reconnect_and_check()
             return {"ok": False, "rolled_back": True, "restored_connected": bool(again),
-                    "error": "새 APN으로 연결하지 못해 이전 설정으로 되돌렸습니다"}
+                    "error": "Could not connect with the new APN, reverted to the previous settings"}
 
     def _reconnect_and_check(self):
         run(["nmcli", "c", "down", LTE_CONN], timeout=30, check=False)
@@ -418,7 +418,7 @@ class Backend:
             time.sleep(2)
         return None
 
-    # ================= 기기 =================
+    # ================= Device =================
     def device(self):
         m = mmcli_json("-m", "any").get("modem", {})
         g, t = m.get("generic", {}), m.get("3gpp", {})
@@ -446,7 +446,7 @@ class Backend:
         threading.Timer(1.5, lambda: subprocess.run(["systemctl", "reboot"])).start()
         return {"ok": True}
 
-    # ================= 문자 (SMS/MMS) =================
+    # ================= Messages (SMS/MMS) =================
     def messages_list(self, q):
         return self.msgs.list(q.get("limit", 50), q.get("before"))
 
@@ -462,7 +462,7 @@ class Backend:
             return self.msgs.delete(older_than_days=d["older_than_days"])
         ids = d.get("ids") or []
         if not isinstance(ids, list):
-            raise ValueError("삭제할 문자를 고르세요")
+            raise ValueError("Select messages to delete")
         return self.msgs.delete(ids)
 
     def messages_read(self, d):
@@ -474,9 +474,9 @@ class Backend:
     def messages_media(self, msg_id, part):
         return self.msgs.media(msg_id, part)
 
-    # ================= 텔레그램 수신 알림 =================
+    # ================= Telegram inbound alerts =================
     def _tg_target(self):
-        """봇 토큰과 방 ID. 수신 전달 on/off와 무관하게 알림(발열 등)에 쓰인다."""
+        """Bot token and chat ID. Used for alerts (thermal etc.) whether inbound forwarding is on or off."""
         t = self.settings.get("telegram") or {}
         if t.get("token") and t.get("chat_id"):
             return t["token"], t["chat_id"]
@@ -492,21 +492,21 @@ class Backend:
         if "chat_id" in d:
             cid = str(d.get("chat_id") or "").strip()
             if cid and not re.fullmatch(r"-?\d{1,20}|@[A-Za-z]\w{3,}", cid):
-                raise ValueError("방 ID 형식 오류 (숫자, 또는 @로 시작하는 채널명)")
+                raise ValueError("Invalid chat ID format (a number, or a channel name starting with @)")
             t["chat_id"] = cid
         tok = d.get("token")
-        if tok:                                 # 빈 값이면 기존 토큰 유지
+        if tok:                                 # empty value keeps the existing token
             tok = str(tok).strip()
             if not re.fullmatch(r"\d{5,}:[A-Za-z0-9_-]{30,}", tok):
-                raise ValueError("봇 토큰 형식 오류 (예: 123456789:ABCdef...)")
+                raise ValueError("Invalid bot token format (e.g. 123456789:ABCdef...)")
             t["token"] = tok
         if "send_media" in d:
             t["send_media"] = bool(d["send_media"])
         if d.get("enabled"):
             if not t.get("token"):
-                raise ValueError("봇 토큰을 입력하세요")
+                raise ValueError("Enter the bot token")
             if not t.get("chat_id"):
-                raise ValueError("방 ID를 입력하세요")
+                raise ValueError("Enter the chat ID")
         t["enabled"] = bool(d.get("enabled"))
         self.settings.update(telegram=t)
         return self.telegram_get()
@@ -514,20 +514,20 @@ class Backend:
     def telegram_test(self, d):
         t = self.settings.get("telegram") or {}
         if not t.get("token") or not t.get("chat_id"):
-            raise ValueError("봇 토큰과 방 ID를 먼저 저장하세요")
-        ok, err = _tg_send(t["token"], t["chat_id"], "✅ OpenStick 연결 테스트입니다.")
+            raise ValueError("Save the bot token and chat ID first")
+        ok, err = _tg_send(t["token"], t["chat_id"], "✅ OpenStick connection test.")
         if not ok:
-            raise ValueError(f"전송 실패: {err}")
+            raise ValueError(f"Send failed: {err}")
         return {"ok": True}
 
     def _notify_telegram(self, msg):
-        """수신 메시지를 텔레그램으로 전달. 수집 스레드를 막지 않도록 별도 스레드에서."""
+        """Forward an inbound message to Telegram, on a separate thread so the collector thread is not blocked."""
         t = self.settings.get("telegram") or {}
         if not t.get("enabled") or not t.get("token") or not t.get("chat_id"):
             return
         threading.Thread(target=self._do_notify, args=(dict(t), msg), daemon=True).start()
 
-    # ================= 발열 알림 =================
+    # ================= Thermal alerts =================
     def thermal_get(self):
         c = self.settings.get("thermal") or {}
         temps = self._temps()
@@ -540,10 +540,10 @@ class Backend:
         if "warn_c" in d:
             w = _num(d.get("warn_c"))
             if w is None or not 60 <= w <= 90:
-                raise ValueError("경고 온도는 60~90°C 사이")
+                raise ValueError("Warning temperature must be 60-90°C")
             c["warn_c"] = int(w)
         if d.get("enabled") and not self._tg_target():
-            raise ValueError("먼저 텔레그램 봇 토큰과 방 ID를 저장하세요")
+            raise ValueError("Save the Telegram bot token and chat ID first")
         c["enabled"] = bool(d.get("enabled"))
         self.settings.update(thermal=c)
         return self.thermal_get()
@@ -566,22 +566,22 @@ class Backend:
                 if not alerted and mx >= hot:
                     alerted = True
                     _tg_send(tg[0], tg[1],
-                             f"⚠️ 발열 경고: {mx:.0f}°C ({zone})\n"
-                             f"임계 {THERMAL_CRIT}°C에 도달하면 자동으로 전원이 꺼집니다. "
-                             f"통풍을 확인하세요.")
+                             f"⚠️ Overheating warning: {mx:.0f}°C ({zone})\n"
+                             f"The device powers off automatically at the critical {THERMAL_CRIT}°C. "
+                             f"Check the ventilation.")
                 elif alerted and mx <= hot - THERMAL_HYST:
                     alerted = False
-                    _tg_send(tg[0], tg[1], f"✅ 온도 정상 회복: {mx:.0f}°C")
-            except Exception as e:  # noqa: BLE001 - 모니터는 절대 죽지 않는다
+                    _tg_send(tg[0], tg[1], f"✅ Temperature back to normal: {mx:.0f}°C")
+            except Exception as e:  # noqa: BLE001 - the monitor must never die
                 print(f"thermal monitor: {e}", flush=True)
 
     def _do_notify(self, t, msg):
         kind = "MMS" if msg.get("kind") == "mms" else "SMS"
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(msg.get("ts") or time.time()))
-        num = (msg.get("number") or "(번호 없음)").replace("+82", "0")
-        lines = [f"\U0001F4E9 문자 수신 ({kind})", f"보낸번호: {num}", when]
+        num = (msg.get("number") or "(no number)").replace("+82", "0")
+        lines = [f"\U0001F4E9 Message received ({kind})", f"From: {num}", when]
         if msg.get("subject"):
-            lines.append(f"제목: {msg['subject']}")
+            lines.append(f"Subject: {msg['subject']}")
         if msg.get("text"):
             lines += ["", msg["text"]]
         parts = msg.get("parts") or []
@@ -597,7 +597,7 @@ class Backend:
                 if os.path.exists(path):
                     _tg_send_photo(t["token"], t["chat_id"], path)
 
-    # ================= 데이터 사용량 / 기기 차단 =================
+    # ================= Data usage / device blocking =================
     def _wan_up(self):
         try:
             out = json.loads(run(["ip", "-j", "-4", "addr", "show", "dev", "wwan0"], timeout=5, check=False) or "[]")
@@ -624,7 +624,7 @@ class Backend:
     def client_unblock(self, d):
         return self.net.unblock(d.get("mac"))
 
-    # ================= 시스템 도구 =================
+    # ================= System tools =================
     def leds_set(self, d):
         return self.sys.set_leds(d.get("mode"))
 
@@ -661,4 +661,4 @@ class Backend:
             return self.sys.traceroute(d.get("host"))
         if kind == "speedtest":
             return self.sys.speedtest(d.get("mb", 10))
-        raise ValueError("없는 진단 종류")
+        raise ValueError("Unknown diagnostic type")

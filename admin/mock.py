@@ -1,4 +1,4 @@
-"""모의 백엔드: 맥/PC에서 기기 없이 화면 개발용. 값은 실제 기기 측정치를 참고한 더미(IMEI 등 식별정보는 가짜)."""
+"""Mock backend: for UI development on a Mac/PC without the device. Values are dummies based on real device readings (identifiers such as IMEI are fake)."""
 import os
 import random
 import struct
@@ -42,7 +42,7 @@ class Backend:
             "modem": {"state": "connected" if b else "registered", "operator": "KT",
                       "registration": "home", "access_tech": ["lte"], "quality": 81.0,
                       "rsrp": -88.0 + random.uniform(-3, 3), "rsrq": -10.0, "snr": 12.4, "rssi": -61.0,
-                      "sim": "정상"},
+                      "sim": "OK"},
             "wan": {"connected": bool(b), "ipv4": b and b["ipv4"], "apn": b and b["apn"],
                     "rx_bytes": self.rx, "tx_bytes": self.tx, "connected_sec": 3510,
                     "lan_down_bytes": self.rx, "lan_up_bytes": self.tx, "ts": time.time()},
@@ -77,9 +77,9 @@ class Backend:
 
     def wifi_set(self, d):
         if "ssid" in d and not 1 <= len(str(d["ssid"]).encode()) <= 32:
-            raise ValueError("WiFi 이름은 1~32바이트")
+            raise ValueError("WiFi name must be 1-32 bytes")
         if d.get("password") and not 8 <= len(d["password"]) <= 63:
-            raise ValueError("WiFi 비밀번호는 8~63자")
+            raise ValueError("WiFi password must be 8-63 characters")
         for k in ("ssid", "channel", "hidden", "isolate", "max_clients", "security"):
             if k in d:
                 self.wifi[k] = d[k]
@@ -101,7 +101,7 @@ class Backend:
         time.sleep(1.5)
         if d.get("apn_mode") == "manual" and d.get("apn") == "fail.test":
             return {"ok": False, "rolled_back": True, "restored_connected": True,
-                    "error": "새 APN으로 연결하지 못해 이전 설정으로 되돌렸습니다"}
+                    "error": "Could not connect with the new APN, reverted to the previous settings"}
         self.wan.update(apn_mode=d.get("apn_mode", "auto"), apn=d.get("apn", ""),
                         username=d.get("username", ""), ip_type=d.get("ip_type", "ipv4v6"))
         return {"ok": True, "rolled_back": False, "bearer": self._bearer()}
@@ -116,7 +116,7 @@ class Backend:
     def reboot(self):
         return {"ok": True}
 
-    # 문자
+    # Messages
     def messages_list(self, q):
         return self.msgs.list(q.get("limit", 50), q.get("before"))
 
@@ -155,13 +155,13 @@ class Backend:
         if "send_media" in d:
             t["send_media"] = bool(d["send_media"])
         if d.get("enabled") and (not t["token"] or not t["chat_id"]):
-            raise ValueError("봇 토큰과 방 ID를 입력하세요")
+            raise ValueError("Enter the bot token and chat ID")
         t["enabled"] = bool(d.get("enabled"))
         return self.telegram_get()
 
     def telegram_test(self, d):
         if not self.telegram["token"] or not self.telegram["chat_id"]:
-            raise ValueError("봇 토큰과 방 ID를 먼저 저장하세요")
+            raise ValueError("Save the bot token and chat ID first")
         time.sleep(0.5)
         return {"ok": True}
 
@@ -176,15 +176,15 @@ class Backend:
         if "warn_c" in d:
             w = int(d["warn_c"])
             if not 60 <= w <= 90:
-                raise ValueError("경고 온도는 60~90°C 사이")
+                raise ValueError("Warning temperature must be 60-90°C")
             self.thermal["warn_c"] = w
         if d.get("enabled") and not (self.telegram["token"] and self.telegram["chat_id"]):
-            raise ValueError("먼저 텔레그램 봇 토큰과 방 ID를 저장하세요")
+            raise ValueError("Save the Telegram bot token and chat ID first")
         self.thermal["enabled"] = bool(d.get("enabled"))
         return self.thermal_get()
 
 
-    # 데이터 사용량 / 차단
+    # Data usage / blocking
     def usage_get(self):
         import datetime as dt
         today = dt.date.today()
@@ -211,7 +211,7 @@ class Backend:
 
     def client_block(self, d, requester_ip):
         if d.get("mac") == "02:00:00:00:00:02":
-            raise ValueError("지금 접속 중인 이 기기는 차단할 수 없습니다")
+            raise ValueError("Cannot block the device you are using right now")
         self.blocked = [b for b in self.blocked if b["mac"] != d.get("mac")] + [{"mac": d.get("mac"), "name": d.get("name"), "since": int(time.time())}]
         return {"ok": True}
 
@@ -219,15 +219,15 @@ class Backend:
         self.blocked = [b for b in self.blocked if b["mac"] != d.get("mac")]
         return {"ok": True}
 
-    # 시스템 도구
+    # System tools
     def system_get(self):
         return {"leds": self.sysd["leds"],
                 "time": {"timezone": self.sysd["tz"], "ntp_synced": True, "now": int(time.time()),
                          "local": time.strftime("%Y-%m-%d %H:%M:%S")},
                 "services": [{"name": n, "state": "active", "can_restart": r, "warning": w} for n, r, w in (
-                    ("hostapd", True, "WiFi가 잠깐 끊깁니다"), ("dnsmasq", True, "DHCP/DNS가 잠깐 멈춥니다"),
-                    ("dnsproxy", True, "DNS가 잠깐 멈춥니다"), ("ModemManager", True, "LTE가 끊겼다가 다시 연결됩니다(수십 초)"),
-                    ("NetworkManager", True, "LTE·USB 네트워크가 잠깐 끊깁니다"), ("nftables", True, "방화벽/NAT 규칙을 다시 읽습니다"),
+                    ("hostapd", True, "WiFi drops briefly"), ("dnsmasq", True, "DHCP/DNS pauses briefly"),
+                    ("dnsproxy", True, "DNS pauses briefly"), ("ModemManager", True, "LTE drops and reconnects (tens of seconds)"),
+                    ("NetworkManager", True, "LTE and USB networking drop briefly"), ("nftables", True, "Reloads the firewall/NAT rules"),
                     ("openstick-admin", False, ""), ("msm8916-usb-gadget", False, ""))]}
 
     def leds_set(self, d):
@@ -244,14 +244,14 @@ class Backend:
 
     def logs(self, q):
         return {"unit": q.get("unit", "admin"), "text": "\n".join(
-            f"2026-10-15T01:{i:02d}:00+0900 openstick {q.get('unit','admin')}[123]: 모의 로그 줄 {i}" for i in range(30))}
+            f"2026-10-15T01:{i:02d}:00+0900 openstick {q.get('unit','admin')}[123]: mock log line {i}" for i in range(30))}
 
     def dns_get(self):
         return {"current": self.sysd["dns"], "state": "active", "presets": [
-            {"id": "adguard", "label": "AdGuard (광고·추적 차단, DoH/DoQ 암호화)"},
-            {"id": "cloudflare", "label": "Cloudflare (차단 없음, DoH 암호화)"},
-            {"id": "google", "label": "Google (차단 없음, DoH 암호화)"},
-            {"id": "carrier", "label": "통신사 DNS (차단·암호화 없음, 가장 가까움)"}]}
+            {"id": "adguard", "label": "AdGuard (blocks ads and trackers, DoH/DoQ encrypted)"},
+            {"id": "cloudflare", "label": "Cloudflare (no blocking, DoH encrypted)"},
+            {"id": "google", "label": "Google (no blocking, DoH encrypted)"},
+            {"id": "carrier", "label": "Carrier DNS (no blocking or encryption, closest)"}]}
 
     def dns_set(self, d):
         time.sleep(1)
@@ -270,7 +270,7 @@ class Backend:
                                                      {"ttl": 3, "ip": "1.1.1.1", "ms": 41.3}]}
         if k == "speedtest":
             return {"mbps": 48.6, "seconds": 1.7, "bytes": int(d.get("mb", 10)) * 1_000_000}
-        raise ValueError("없는 진단 종류")
+        raise ValueError("Unknown diagnostic type")
 
 def _png(w=96, h=64):
     rows = b"".join(b"\x00" + bytes(v for x in range(w) for v in (x * 255 // w, y * 255 // h, 180)) for y in range(h))
@@ -281,20 +281,20 @@ def _png(w=96, h=64):
 
 
 class _MockMessages(sms.Messages):
-    """실제 저장 로직 그대로, 모뎀만 가짜 (임시 폴더에 sqlite)."""
+    """Real storage logic as is, only the modem is fake (sqlite in a temp folder)."""
 
     def __init__(self):
         super().__init__(data_dir=tempfile.mkdtemp(prefix="osa-mock-"), start=False)
         now = int(time.time())
-        self._add("in", "+821000000001", now - 3600, "sms", "수신테스트01", "received", 1)
+        self._add("in", "+821000000001", now - 3600, "sms", "Inbound test 01", "received", 1)
         self._add("in", "+821000000001", now - 3500,
-                  "sms", "한글테스트하나둘셋넷" * 6 + "총육십오줄", "received", 1)
-        mid = self._add("in", "+821000000001", now - 3400, "mms", "사진 보냅니다", "retrieved", 0, subject="[제목없음]")
+                  "sms", "LongText10" * 6 + "65chr", "received", 1)
+        mid = self._add("in", "+821000000001", now - 3400, "mms", "Sending you a photo", "retrieved", 0, subject="[제목없음]")
         with open(os.path.join(self.media_dir, f"{mid}-0"), "wb") as f:
             f.write(_png())
         self._set(mid, parts='[{"type": "image/png", "name": "IMG_0001.png", "file": "%d-0", "size": 1}]' % mid)
-        self._add("in", "+821000000002", now - 600, "mms", None, "error", 0, error="MMSC HTTP 연결 실패")
-        self._add("out", "+821000000001", now - 3300, "sms", "[OpenStick] 문자 수신 확인", "sent", 1)
+        self._add("in", "+821000000002", now - 600, "mms", None, "error", 0, error="MMSC HTTP connection failed")
+        self._add("out", "+821000000001", now - 3300, "sms", "[OpenStick] Message received, confirmed", "sent", 1)
 
     def _add(self, direction, number, ts, kind, text, status, read, subject=None, error=None):
         cur = self.db.execute(
@@ -306,15 +306,15 @@ class _MockMessages(sms.Messages):
     def send(self, number, text):
         number = number.replace("-", "").replace(" ", "")
         if not sms.NUMBER_RE.fullmatch(number):
-            raise ValueError("전화번호 형식 오류")
+            raise ValueError("Invalid phone number format")
         if not 1 <= len(text) <= 1000:
-            raise ValueError("내용은 1~1000자")
+            raise ValueError("Text must be 1-1000 characters")
         time.sleep(0.8)
         return {"ok": True, "id": self._add("out", number, int(time.time()), "sms", text, "sent", 1)}
 
     def _post_mms(self, pdu):
-        """검증·PDU 생성·보관은 진짜 코드를 그대로 쓰고(인코더 오류를 화면 개발 중에 잡는다),
-        MMSC로 보내는 것만 생략한다."""
-        print(f"mock: m-send-req {len(pdu)} bytes (전송 생략)", flush=True)
+        """Validation, PDU building and storage use the real code as is (to catch encoder bugs during UI development),
+        only the upload to the MMSC is skipped."""
+        print(f"mock: m-send-req {len(pdu)} bytes (send skipped)", flush=True)
         time.sleep(1.0)
         return {"type": 0x81, "response_status": 0x80, "message_id": f"mock-{os.urandom(3).hex()}"}

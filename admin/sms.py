@@ -350,16 +350,16 @@ def build_notifyresp(tid):
 WK_CONTENT_IDS = {v: k for k, v in WK_CONTENT_TYPES.items()}
 SMIL_CID = "smil"
 SEND_STATUS = {                                 # X-Mms-Response-Status of an m-send-conf
-    0x81: "알 수 없는 오류",
-    0x82: "서비스 거부 (회선에 MMS 발신이 막혀 있을 수 있습니다)",
-    0x83: "메시지 형식 오류",
-    0x84: "발신 번호를 확인할 수 없음",
-    0x85: "메시지를 찾을 수 없음",
-    0x86: "네트워크 오류",
-    0x87: "받는 번호 형식 오류",
-    0x88: "받는 번호를 확인할 수 없음",
-    0x89: "지원하지 않는 메시지",
-    0x8A: "메시지가 너무 큽니다",
+    0x81: "Unknown error",
+    0x82: "Service denied (MMS sending may be blocked on this line)",
+    0x83: "Message format error",
+    0x84: "Sender number could not be resolved",
+    0x85: "Message not found",
+    0x86: "Network error",
+    0x87: "Invalid recipient number format",
+    0x88: "Recipient number could not be resolved",
+    0x89: "Unsupported message",
+    0x8A: "Message too large",
 }
 
 
@@ -578,7 +578,7 @@ class Messages:
         if before:
             m = re.fullmatch(r"(\d+):(\d+)", str(before))
             if not m:
-                raise ValueError("잘못된 커서")
+                raise ValueError("Invalid cursor")
             ts, mid = int(m.group(1)), int(m.group(2))
             q += " WHERE ts < ? OR (ts = ? AND id < ?)"
             args += [ts, ts, mid]
@@ -614,13 +614,13 @@ class Messages:
             if older_than_days is not None:
                 days = int(older_than_days)
                 if days < 1:
-                    raise ValueError("기간은 1일 이상")
+                    raise ValueError("Period must be at least 1 day")
                 cutoff = int(time.time()) - days * 86400
                 ids = [r[0] for r in self.db.execute("SELECT id FROM messages WHERE ts < ?", (cutoff,))]
             else:
                 ids = [int(i) for i in (ids or [])]
                 if not ids or len(ids) > 1000:
-                    raise ValueError("삭제할 문자를 고르세요 (최대 1000건)")
+                    raise ValueError("Select messages to delete (max 1000)")
             for i in ids:
                 row = self.db.execute("SELECT parts FROM messages WHERE id=?", (i,)).fetchone()
                 for p in json.loads((row and row["parts"]) or "[]"):
@@ -681,14 +681,14 @@ class Messages:
         parts = json.loads((row and row["parts"]) or "[]")
         p = parts[int(part)] if 0 <= int(part) < len(parts) else None
         if not p:
-            raise ValueError("없는 첨부")
+            raise ValueError("Attachment not found")
         with open(os.path.join(self.media_dir, p["file"]), "rb") as f:
             return p["type"], f.read(), p.get("name")
 
     def retry(self, msg_id):
         with self.lock:
             self.db.execute("UPDATE messages SET status='pending', retries=0, error=NULL"
-                            " WHERE id=? AND kind='mms' AND direction='in'",   # 보낸 MMS는 받아올 것이 없다
+                            " WHERE id=? AND kind='mms' AND direction='in'",   # sent MMS has nothing to fetch
                             (int(msg_id),))
             self.db.commit()
         threading.Thread(target=self._fetch_pending, daemon=True).start()
@@ -697,10 +697,10 @@ class Messages:
     def send(self, number, text):
         number = re.sub(r"[\s-]", "", str(number))
         if not NUMBER_RE.fullmatch(number):
-            raise ValueError("전화번호 형식 오류")
+            raise ValueError("Invalid phone number format")
         text = str(text)
         if not 1 <= len(text) <= 1000:
-            raise ValueError("내용은 1~1000자")
+            raise ValueError("Text must be 1-1000 characters")
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as f:
             f.write(text)
             tmp = f.name
@@ -710,7 +710,7 @@ class Messages:
                         f"--messaging-create-sms-with-text={tmp}"])
             m = re.search(r"/SMS/(\d+)", out)
             if not m:
-                raise RuntimeError("SMS 생성 실패")
+                raise RuntimeError("Failed to create SMS")
             path = m.group(1)
             _run(["mmcli", "-s", path, "--send"], timeout=120)
             status = "sent"
@@ -727,7 +727,7 @@ class Messages:
                 (f"out-{now}-{os.urandom(4).hex()}", "out", number, now, "sms", text, status, err))
             self.db.commit()
         if status != "sent":
-            raise RuntimeError(f"발송 실패: {err}")
+            raise RuntimeError(f"Send failed: {err}")
         return {"ok": True, "id": cur.lastrowid}
 
     def send_mms(self, number, text="", subject=None, attachments=()):
@@ -738,25 +738,25 @@ class Messages:
         carrier took the message."""
         number = re.sub(r"[\s-]", "", str(number))
         if not NUMBER_RE.fullmatch(number):
-            raise ValueError("전화번호 형식 오류")
+            raise ValueError("Invalid phone number format")
         if not self.mmsc_url:
-            raise ValueError("MMSC 주소가 설정되어 있지 않습니다")
+            raise ValueError("MMSC address is not configured")
         text = str(text or "")
         if len(text) > 4000:
-            raise ValueError("내용은 4000자 이하")
+            raise ValueError("Text must be 4000 characters or fewer")
         subject = str(subject).strip()[:120] if subject else None
         atts = []
         for a in attachments:
             ctype = str(a.get("type") or "application/octet-stream").lower()
             if not re.fullmatch(r"[\w.+-]+/[\w.+-]+", ctype):
-                raise ValueError("첨부 형식 오류")
+                raise ValueError("Invalid attachment format")
             atts.append({"type": ctype, "name": _safe_name(a.get("name")) or f"file{len(atts)}",
                          "data": a["data"]})
         if not text and not atts:
-            raise ValueError("내용이나 첨부가 필요합니다")
+            raise ValueError("Text or an attachment is required")
         total = sum(len(a["data"]) for a in atts)
         if total > MMS_SEND_MAX_BYTES:
-            raise ValueError(f"첨부는 합계 {MMS_SEND_MAX_BYTES >> 10}KB 이하 (현재 {total >> 10}KB)")
+            raise ValueError(f"Attachments must total {MMS_SEND_MAX_BYTES >> 10}KB or less (currently {total >> 10}KB)")
 
         now = int(time.time())
         with self.lock:
@@ -797,14 +797,14 @@ class Messages:
             h = self._post_mms(pdu)
             rs = h.get("response_status", 0x80)
             if rs != 0x80:
-                raise RuntimeError(SEND_STATUS.get(rs, f"MMSC 거부 (0x{rs:02X})")
+                raise RuntimeError(SEND_STATUS.get(rs, f"MMSC rejected (0x{rs:02X})")
                                    + (f" - {h['response_text']}" if h.get("response_text") else ""))
             mid, status = h.get("message_id"), "sent"
         except Exception as e:  # noqa: BLE001 - the row keeps the reason either way
             err = str(e)[:300]
         self._set(msg_id, status=status, parts=json.dumps(stored), error=err, mms_tid=tid)
         if status != "sent":
-            raise RuntimeError(f"발송 실패: {err}")
+            raise RuntimeError(f"Send failed: {err}")
         return {"ok": True, "id": msg_id, "message_id": mid}
 
     def _post_mms(self, pdu):
@@ -821,7 +821,7 @@ class Messages:
                          "--data-binary", f"@{req}", "-o", resp, "-w", "%{http_code}",
                          self.mmsc_url], timeout=MMS_SEND_TIMEOUT + 30, check=False).strip()
             if code != "200":
-                raise RuntimeError(f"MMSC HTTP {code or '연결 실패'}")
+                raise RuntimeError(f"MMSC HTTP {code or 'connection failed'}")
             with open(resp, "rb") as f:
                 return parse_send_conf(f.read())
         finally:
@@ -899,7 +899,7 @@ class Messages:
                                mms_expiry=notif.get("expiry"), number=notif.get("from") or number)
                     uid = "mms-" + hashlib.sha1(notif["location"].encode()).hexdigest()
                 else:
-                    row = dict(kind="sms", text="(지원하지 않는 바이너리 메시지)", status="received")
+                    row = dict(kind="sms", text="(unsupported binary message)", status="received")
             else:
                 row = dict(kind="sms", text=text or "", status="received")
             row.setdefault("number", number)
@@ -949,7 +949,7 @@ class Messages:
                          "-A", "Android-Mms/2.0", "-H", "Accept: application/vnd.wap.mms-message, */*",
                          "-o", tmp, "-w", "%{http_code}", r["mms_url"]], timeout=120, check=False).strip()
             if code != "200":
-                raise RuntimeError(f"MMSC HTTP {code or '연결 실패'}")
+                raise RuntimeError(f"MMSC HTTP {code or 'connection failed'}")
             with open(tmp, "rb") as f:
                 data = f.read()
         finally:
@@ -1013,26 +1013,26 @@ def _free_bytes(path):
     try:
         st = os.statvfs(path)
         return st.f_bavail * st.f_frsize
-    except (AttributeError, OSError):          # 모의 모드로 돌리는 PC에는 statvfs가 없을 수 있다
+    except (AttributeError, OSError):          # a PC running in mock mode may not have statvfs
         return 1 << 62
 
 
 def decode_attachments(items):
-    """웹에서 온 MMS 첨부 [{name, type, data(base64)}] -> 바이트."""
+    """MMS attachments from the web [{name, type, data(base64)}] -> bytes."""
     if items is None:
         return []
     if not isinstance(items, list) or len(items) > 10:
-        raise ValueError("첨부는 최대 10개")
+        raise ValueError("At most 10 attachments")
     out = []
     for a in items:
         if not isinstance(a, dict) or not isinstance(a.get("data"), str):
-            raise ValueError("첨부 형식 오류")
+            raise ValueError("Invalid attachment format")
         try:
             data = base64.b64decode(a["data"], validate=True)
         except (binascii.Error, ValueError):
-            raise ValueError("첨부 디코드 실패")
+            raise ValueError("Failed to decode attachment")
         if not data:
-            raise ValueError("빈 첨부")
+            raise ValueError("Empty attachment")
         out.append({"name": a.get("name"), "type": a.get("type"), "data": data})
     return out
 

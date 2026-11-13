@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""OpenStick 관리페이지 서버 (Python 표준 라이브러리만 사용).
+"""OpenStick admin page server (Python standard library only).
 
-실행:
-  기기:  python3 server.py --listen 192.168.100.1:80 --config /etc/openstick-admin/config.json
-  개발:  python3 server.py --mock --listen 127.0.0.1:8080 --config ./dev-config.json
+Usage:
+  Device:  python3 server.py --listen 192.168.100.1:80 --config /etc/openstick-admin/config.json
+  Dev:     python3 server.py --mock --listen 127.0.0.1:8080 --config ./dev-config.json
 """
 import argparse
 import hashlib
@@ -20,14 +20,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 WWW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www")
-SESSION_TTL = 30 * 60          # 마지막 요청 후 30분
+SESSION_TTL = 30 * 60          # 30 minutes after the last request
 PBKDF2_ITER = 200_000
 MAX_BODY = 64 * 1024
-MAX_UPLOAD = 2 * 1024 * 1024     # MMS 첨부(base64)만 예외로 크게
+MAX_UPLOAD = 2 * 1024 * 1024     # larger only for MMS attachments (base64)
 
 
 class Config:
-    """관리자 비밀번호 해시 저장 (JSON 파일, 0600)."""
+    """Stores the admin password hash (JSON file, 0600)."""
 
     def __init__(self, path):
         self.path = path
@@ -97,7 +97,7 @@ class Sessions:
 
 
 class LoginThrottle:
-    """IP별 로그인 실패 시 대기시간을 2배씩 늘림 (최대 5분)."""
+    """Doubles the wait time per IP on each failed login (max 5 minutes)."""
 
     def __init__(self):
         self.fails = {}
@@ -128,9 +128,9 @@ class ApiError(Exception):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "OpenStickAdmin/0.1"
-    # server 속성(app)은 main()에서 주입
+    # the server attribute (app) is injected in main()
 
-    # ---------- 공통 ----------
+    # ---------- Common ----------
     def log_message(self, fmt, *args):
         if self.server.app["verbose"]:
             super().log_message(fmt, *args)
@@ -162,14 +162,14 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def _session(self):
-        if self.server.app.get("dev_autologin"):      # --mock 전용(화면 캡처/개발)
+        if self.server.app.get("dev_autologin"):      # --mock only (screenshots/development)
             return "dev", {"csrf": "dev", "seen": time.time()}
         tok = self._cookie_token()
         return (tok, self.server.app["sessions"].get(tok)) if tok else (None, None)
 
     def _drain(self, n, cap=8 * 1024 * 1024):
-        """거부할 본문도 일단 읽어서 버린다. 다 읽기 전에 닫으면 브라우저는 413 대신
-        네트워크 오류를 보게 되고, 왜 거부됐는지 화면에 띄울 수 없다."""
+        """Read and discard the body even when rejecting it. If we close before reading it all, the browser
+        sees a network error instead of 413 and the page cannot show why it was rejected."""
         left = min(n, cap)
         while left > 0:
             chunk = self.rfile.read(min(left, 65536))
@@ -184,17 +184,17 @@ class Handler(BaseHTTPRequestHandler):
         if n > limit:
             self._drain(n)
             raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                           f"요청이 너무 큽니다 (최대 {limit >> 10}KB)")
+                           f"Request too large (max {limit >> 10}KB)")
         raw = self.rfile.read(n) if n else b"{}"
         try:
             data = json.loads(raw or b"{}")
         except json.JSONDecodeError:
-            raise ApiError(HTTPStatus.BAD_REQUEST, "JSON 형식 오류")
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid JSON")
         if not isinstance(data, dict):
-            raise ApiError(HTTPStatus.BAD_REQUEST, "JSON 객체가 필요합니다")
+            raise ApiError(HTTPStatus.BAD_REQUEST, "A JSON object is required")
         return data
 
-    # ---------- 정적 파일 ----------
+    # ---------- Static files ----------
     def _static(self, path):
         if path == "/":
             path = "/index.html"
@@ -213,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    # ---------- 라우팅 ----------
+    # ---------- Routing ----------
     def do_GET(self):
         path = urlparse(self.path).path
         if path.startswith("/api/"):
@@ -228,7 +228,7 @@ class Handler(BaseHTTPRequestHandler):
         app = self.server.app
         try:
             ip = self.client_address[0]
-            # --- 인증 없이 허용 ---
+            # --- Allowed without authentication ---
             if (method, path) == ("GET", "/api/session"):
                 tok, s = self._session()
                 return self._send_json(200, {
@@ -236,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
                     "needs_setup": not app["config"].has_password, "mock": app["mock"]})
             if (method, path) == ("POST", "/api/setup"):
                 if app["config"].has_password:
-                    raise ApiError(HTTPStatus.FORBIDDEN, "이미 설정되었습니다")
+                    raise ApiError(HTTPStatus.FORBIDDEN, "Already set up")
                 pw = self._read_json().get("password", "")
                 _check_new_password(pw)
                 app["config"].set_password(pw)
@@ -244,21 +244,21 @@ class Handler(BaseHTTPRequestHandler):
             if (method, path) == ("POST", "/api/login"):
                 left = app["throttle"].wait_left(ip)
                 if left:
-                    raise ApiError(HTTPStatus.TOO_MANY_REQUESTS, f"{int(left) + 1}초 후 다시 시도하세요")
+                    raise ApiError(HTTPStatus.TOO_MANY_REQUESTS, f"Try again in {int(left) + 1} seconds")
                 pw = self._read_json().get("password", "")
                 if not app["config"].check_password(pw):
                     app["throttle"].fail(ip)
-                    raise ApiError(HTTPStatus.UNAUTHORIZED, "비밀번호가 틀렸습니다")
+                    raise ApiError(HTTPStatus.UNAUTHORIZED, "Incorrect password")
                 app["throttle"].ok(ip)
                 return self._login_response()
 
-            # --- 이하 로그인 필요 ---
+            # --- Login required below ---
             tok, s = self._session()
             if not s:
-                raise ApiError(HTTPStatus.UNAUTHORIZED, "로그인이 필요합니다")
+                raise ApiError(HTTPStatus.UNAUTHORIZED, "Login required")
             if method == "POST" and not hmac.compare_digest(
                     self.headers.get("X-CSRF-Token", ""), s["csrf"]):
-                raise ApiError(HTTPStatus.FORBIDDEN, "CSRF 토큰 오류")
+                raise ApiError(HTTPStatus.FORBIDDEN, "Invalid CSRF token")
 
             if (method, path) == ("POST", "/api/logout"):
                 app["sessions"].drop(tok)
@@ -266,7 +266,7 @@ class Handler(BaseHTTPRequestHandler):
             if (method, path) == ("POST", "/api/password"):
                 d = self._read_json()
                 if not app["config"].check_password(d.get("old", "")):
-                    raise ApiError(HTTPStatus.BAD_REQUEST, "현재 비밀번호가 틀렸습니다")
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "Current password is incorrect")
                 _check_new_password(d.get("new", ""))
                 app["config"].set_password(d["new"])
                 app["sessions"].drop_all()
@@ -314,15 +314,15 @@ class Handler(BaseHTTPRequestHandler):
             }
             fn = routes.get((method, path))
             if not fn:
-                raise ApiError(HTTPStatus.NOT_FOUND, "없는 API")
+                raise ApiError(HTTPStatus.NOT_FOUND, "Unknown API")
             self._send_json(200, fn())
         except ApiError as e:
             self._send_json(e.status, {"error": str(e)})
-        except ValueError as e:          # 백엔드 입력 검증 실패
+        except ValueError as e:          # backend input validation failed
             self._send_json(400, {"error": str(e)})
         except Exception as e:           # noqa: BLE001
-            self.log_error("API 오류 %s: %r", path, e)
-            self._send_json(500, {"error": f"내부 오류: {e}"})
+            self.log_error("API error %s: %r", path, e)
+            self._send_json(500, {"error": f"Internal error: {e}"})
 
     SAFE_INLINE = ("image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp")
 
@@ -350,20 +350,20 @@ def _cookie(value, max_age):
 
 def _check_new_password(pw):
     if not isinstance(pw, str) or not (8 <= len(pw) <= 64):
-        raise ApiError(HTTPStatus.BAD_REQUEST, "비밀번호는 8~64자여야 합니다")
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Password must be 8-64 characters")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--listen", default="192.168.100.1:80")
     ap.add_argument("--config", default="/etc/openstick-admin/config.json")
-    ap.add_argument("--mock", action="store_true", help="기기 없이 모의 데이터로 실행")
-    ap.add_argument("--dev-autologin", action="store_true", help="--mock 전용: 로그인 생략(개발/캡처용)")
+    ap.add_argument("--mock", action="store_true", help="run with mock data, without a device")
+    ap.add_argument("--dev-autologin", action="store_true", help="--mock only: skip login (for development/screenshots)")
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args()
 
     if a.dev_autologin and not a.mock:
-        ap.error("--dev-autologin은 --mock과 함께만 쓸 수 있습니다")
+        ap.error("--dev-autologin can only be used together with --mock")
     if a.mock:
         import mock as backend_mod
     else:
@@ -376,7 +376,7 @@ def main():
         "backend": backend_mod.Backend(), "mock": a.mock, "verbose": a.verbose,
         "dev_autologin": a.dev_autologin,
     }
-    print(f"OpenStick 관리페이지: http://{a.listen}/ ({'모의' if a.mock else '실제'} 모드)", flush=True)
+    print(f"OpenStick admin page: http://{a.listen}/ ({'mock' if a.mock else 'real'} mode)", flush=True)
     httpd.serve_forever()
 
 

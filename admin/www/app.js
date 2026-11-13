@@ -1,5 +1,5 @@
 "use strict";
-// OpenStick 관리페이지 프런트엔드 (프레임워크 없음)
+// OpenStick admin page frontend (no framework)
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -7,7 +7,7 @@ let csrf = null;
 let pollTimer = null;
 let lastWan = null;
 
-// ---------- 공통 ----------
+// ---------- Common ----------
 async function api(path, body) {
   const opt = { method: body === undefined ? "GET" : "POST", headers: {}, credentials: "same-origin" };
   if (body !== undefined) {
@@ -17,9 +17,9 @@ async function api(path, body) {
   }
   const r = await fetch(path, opt);
   let data = {};
-  try { data = await r.json(); } catch { /* 빈 응답 */ }
-  if (r.status === 401 && path !== "/api/login") { showAuth(false); throw new Error(data.error || "로그인이 필요합니다"); }
-  if (!r.ok) throw new Error(data.error || `오류 (${r.status})`);
+  try { data = await r.json(); } catch { /* empty response */ }
+  if (r.status === 401 && path !== "/api/login") { showAuth(false); throw new Error(data.error || "Login required"); }
+  if (!r.ok) throw new Error(data.error || `Error (${r.status})`);
   return data;
 }
 
@@ -53,7 +53,7 @@ const fmtRate = (bps) => (bps == null ? "-" : bps >= 1e6 ? `${(bps / 1e6).toFixe
 const fmtDur = (s) => {
   if (s == null) return "-";
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  return d ? `${d}일 ${h}시간` : h ? `${h}시간 ${m}분` : `${m}분`;
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 };
 const dash = (v, unit = "") => (v == null || v === "" ? "-" : `${typeof v === "number" ? Math.round(v * 10) / 10 : v}${unit}`);
 
@@ -72,17 +72,17 @@ function kv(el, rows) {
   }));
 }
 
-// ---------- 로그인 ----------
+// ---------- Login ----------
 function showAuth(setup) {
   stopPoll();
   $("#app").classList.add("hidden");
   $("#auth").classList.remove("hidden");
   $("#auth-form").dataset.setup = setup ? "1" : "";
   $("#auth-desc").textContent = setup
-    ? "처음 사용합니다. 관리자 비밀번호(8자 이상)를 정하세요."
-    : "관리자 비밀번호를 입력하세요.";
+    ? "First-time setup. Choose an admin password (at least 8 characters)."
+    : "Enter the admin password.";
   $("#auth-pw2").classList.toggle("hidden", !setup);
-  $("#auth-form button").textContent = setup ? "설정하고 시작" : "로그인";
+  $("#auth-form button").textContent = setup ? "Set up and start" : "Log in";
   $("#auth-pw").focus();
 }
 
@@ -91,7 +91,7 @@ $("#auth-form").addEventListener("submit", async (e) => {
   const setup = !!e.target.dataset.setup;
   const pw = $("#auth-pw").value;
   $("#auth-err").textContent = "";
-  if (setup && pw !== $("#auth-pw2").value) { $("#auth-err").textContent = "비밀번호 확인이 다릅니다"; return; }
+  if (setup && pw !== $("#auth-pw2").value) { $("#auth-err").textContent = "Passwords do not match"; return; }
   try {
     const r = await api(setup ? "/api/setup" : "/api/login", { password: pw });
     csrf = r.csrf;
@@ -101,19 +101,19 @@ $("#auth-form").addEventListener("submit", async (e) => {
 });
 
 $("#logout").addEventListener("click", async () => {
-  try { await api("/api/logout", {}); } catch { /* 무시 */ }
+  try { await api("/api/logout", {}); } catch { /* ignore */ }
   csrf = null;
   showAuth(false);
 });
 
-// ---------- 탭 ----------
+// ---------- Tabs ----------
 const loaders = { dash: loadStatus, sms: loadSms, wifi: loadWifi, wan: loadWan, clients: loadClients, diag: loadDiag, device: loadDevice };
 $$(".tabs button").forEach((b) => b.addEventListener("click", () => openTab(b.dataset.tab)));
 
 function openTab(name) {
   $$(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   $$(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== `tab-${name}`));
-  try { localStorage.setItem("osa-tab", name); } catch { /* 무시 */ }
+  try { localStorage.setItem("osa-tab", name); } catch { /* ignore */ }
   history.replaceState(null, "", `#${name}`);
   loaders[name]().catch((e) => toast(e.message));
 }
@@ -132,7 +132,7 @@ function enterApp() {
 function startPoll() { stopPoll(); pollTimer = setInterval(() => loadStatus().catch(() => {}), 3000); }
 function stopPoll() { clearInterval(pollTimer); pollTimer = null; lastWan = null; }
 
-// ---------- 대시보드 ----------
+// ---------- Dashboard ----------
 async function loadStatus() {
   const s = await api("/api/status");
   const m = s.modem, w = s.wan, sys = s.system;
@@ -144,7 +144,7 @@ async function loadStatus() {
   $("#d-rsrp").textContent = dash(m.rsrp, " dBm");
   $("#d-rsrq").textContent = dash(m.rsrq, " dB");
   $("#d-snr").textContent = dash(m.snr, " dB");
-  $("#d-conn").textContent = w.connected ? "연결됨" : "연결 안 됨";
+  $("#d-conn").textContent = w.connected ? "Connected" : "Not connected";
   $("#d-conn").style.color = w.connected ? "var(--ok)" : "var(--danger)";
   $("#d-op").textContent = m.operator || "-";
   $("#d-tech").textContent = (m.access_tech || []).join(", ").toUpperCase() || "-";
@@ -161,7 +161,7 @@ async function loadStatus() {
   $("#d-total").textContent = `↓${fmtBytes(w.rx_bytes)} ↑${fmtBytes(w.tx_bytes)}` +
     (w.connected_sec ? ` (${fmtDur(w.connected_sec)})` : "");
 
-  $("#d-clients").textContent = `${s.clients}대`;
+  $("#d-clients").textContent = `${s.clients}`;
   setSmsBadge(s.unread);
   $("#d-uptime").textContent = fmtDur(sys.uptime);
   $("#d-mem").textContent = sys.mem_total_kb
@@ -178,21 +178,21 @@ async function loadStatus() {
     $("#d-usage-today").textContent = `↓${fmtBytes(u.today.rx)} ↑${fmtBytes(u.today.tx)}`;
     $("#d-usage-period").textContent = `${u.period.start} ~`;
     const w = $("#d-usage-warn");
-    w.textContent = u.blocked_now ? "⛔ 월 한도 초과 — 접속 기기 인터넷 차단 중"
-      : pct != null && pct >= u.warn_pct ? `⚠️ 월 한도의 ${pct}% 사용` : (u.cap_bytes ? "" : "월 한도 미설정");
+    w.textContent = u.blocked_now ? "⛔ Monthly limit exceeded — internet blocked for clients"
+      : pct != null && pct >= u.warn_pct ? `⚠️ ${pct}% of monthly limit used` : (u.cap_bytes ? "" : "No monthly limit set");
     w.className = "small " + (u.blocked_now || (pct != null && pct >= u.warn_pct) ? "error" : "muted");
   }
   const st = s.storage;
   if (st) {
     $("#d-disk").textContent = `${fmtBytes(st.disk_free_bytes)} / ${fmtBytes(st.disk_total_bytes)}`;
-    $("#d-msgs").textContent = `${st.messages}건 (${fmtBytes(st.db_bytes)})`;
+    $("#d-msgs").textContent = `${st.messages} (${fmtBytes(st.db_bytes)})`;
     $("#d-media").textContent = `${fmtBytes(st.media_bytes)} / ${fmtBytes(st.media_cap_bytes)}`;
-    $("#d-prune").textContent = `한도를 넘거나 디스크 여유가 ${fmtBytes(st.min_free_bytes)} 미만이면 오래된 MMS 사진부터 자동 정리(글은 유지)` +
-      (st.pruned ? ` · 정리된 MMS ${st.pruned}건` : "");
+    $("#d-prune").textContent = `Oldest MMS photos are removed automatically when over the limit or when free disk drops below ${fmtBytes(st.min_free_bytes)} (text is kept)` +
+      (st.pruned ? ` · ${st.pruned} MMS cleaned up` : "");
   }
 }
 
-// ---------- 문자 ----------
+// ---------- Messages ----------
 let smsOldest = null;
 
 function setSmsBadge(n) {
@@ -207,9 +207,9 @@ function smsSegments(text) {
   const [one, many] = gsm ? [160, 153] : [70, 67];
   return { n, parts: n === 0 ? 0 : n <= one ? 1 : Math.ceil(n / many) };
 }
-// ---------- MMS 첨부 ----------
-const MMS_MAX = 1024 * 1024;     // 서버와 같은 한도(합계)
-const IMG_TARGET = 300 * 1024;   // 통신사가 대개 이 근처에서 자르므로 사진은 미리 줄여서 보냄
+// ---------- MMS attachments ----------
+const MMS_MAX = 1024 * 1024;     // same limit as the server (total)
+const IMG_TARGET = 300 * 1024;   // carriers usually cut off around this size, so photos are shrunk before sending
 const IMG_MAX_PX = 1280;
 let atts = [];
 
@@ -220,7 +220,7 @@ const b64 = (buf) => {
   return btoa(s);
 };
 
-// 기기에는 이미지 라이브러리가 없으므로 축소는 브라우저에서 한다.
+// The device has no image library, so shrinking happens in the browser.
 async function shrink(file) {
   if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
   const bmp = await createImageBitmap(file).catch(() => null);
@@ -252,21 +252,21 @@ function syncSms() {
   const mms = mmsMode();
   $("#sms-kind").classList.toggle("hidden", !mms);
   $("#sms-count").textContent = mms
-    ? `${n}자 · MMS 1건`
-    : `${n}자 · SMS ${parts}건${parts > 1 ? " (나뉘어 발송, 건별 요금)" : ""}`;
+    ? `${n} chars · 1 MMS`
+    : `${n} chars · ${parts} SMS${parts > 1 ? " (sent in parts, charged per part)" : ""}`;
   const total = atts.reduce((s, a) => s + a.size, 0);
   $("#sms-attinfo").textContent = atts.length
-    ? `첨부 ${atts.length}개 · ${fmtBytes(total)}${total > IMG_TARGET ? " (통신사에서 거부될 수 있는 크기)" : ""}`
+    ? `${atts.length} attached · ${fmtBytes(total)}${total > IMG_TARGET ? " (the carrier may reject this size)" : ""}`
     : "";
   $("#sms-atts").replaceChildren(...atts.map((a, i) => {
     const li = el("li");
     if (a.type.startsWith("image/")) {
       const img = el("img");
-      img.src = `data:${a.type};base64,${a.data}`;   // CSP가 blob:은 막고 data:는 허용한다
+      img.src = `data:${a.type};base64,${a.data}`;   // CSP blocks blob: but allows data:
       img.alt = "";
       li.append(img);
     } else {
-      li.append(el("span", "tag", a.type.split("/")[1] || "파일"));
+      li.append(el("span", "tag", a.type.split("/")[1] || "file"));
     }
     li.append(el("span", "nm", a.name), el("span", "sz", fmtBytes(a.size)));
     const x = el("button", "ghost small", "✕");
@@ -290,11 +290,11 @@ $("#sms-files").addEventListener("change", async (e) => {
   e.target.value = "";
   await busy($("#sms-attach"), async () => {
     for (const raw of files) {
-      if (atts.length >= 10) { toast("첨부는 최대 10개"); break; }
+      if (atts.length >= 10) { toast("Up to 10 attachments"); break; }
       let file;
       try { file = await shrink(raw); } catch { file = raw; }
       const total = atts.reduce((s, a) => s + a.size, 0) + file.size;
-      if (total > MMS_MAX) { toast(`${file.name}: 합계 ${fmtBytes(MMS_MAX)}를 넘어 제외했습니다`); continue; }
+      if (total > MMS_MAX) { toast(`${file.name}: skipped, total would exceed ${fmtBytes(MMS_MAX)}`); continue; }
       atts.push({
         name: file.name, type: file.type || "application/octet-stream", size: file.size,
         data: b64(await file.arrayBuffer()),
@@ -306,11 +306,11 @@ $("#sms-files").addEventListener("change", async (e) => {
 
 const fmtTime = (ts) => {
   const d = new Date(ts * 1000), now = new Date();
-  const hm = d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  const hm = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
   return d.toDateString() === now.toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
 };
-const STATUS = { pending: "MMS 받는 중", error: "MMS 받기 실패", expired: "MMS 기간 만료",
-                 sending: "보내는 중", failed: "발송 실패" };
+const STATUS = { pending: "Receiving MMS", error: "MMS download failed", expired: "MMS expired",
+                 sending: "Sending", failed: "Send failed" };
 
 const fmtNum = (n) => (n || "").replace(/^\+82/, "0");
 
@@ -327,7 +327,7 @@ function renderMsg(m) {
   const sel = el("input", "msg-sel"); sel.type = "checkbox"; sel.dataset.id = m.id;
   sel.addEventListener("change", syncBulk);
   head.append(sel);
-  head.append(el("span", "msg-dir", m.direction === "in" ? "받음" : "보냄"), el("span", "msg-num", fmtNum(m.number) || "(번호 없음)"));
+  head.append(el("span", "msg-dir", m.direction === "in" ? "Received" : "Sent"), el("span", "msg-num", fmtNum(m.number) || "(no number)"));
   if (m.kind === "mms") head.append(el("span", "tag", "MMS"));
   if (STATUS[m.status]) head.append(el("span", "tag err", STATUS[m.status]));
   head.append(el("span", "msg-time", fmtTime(m.ts)));
@@ -340,7 +340,7 @@ function renderMsg(m) {
       const url = `/api/messages/media?id=${m.id}&part=${i}`;
       if (p.type.startsWith("image/")) {
         const a = el("a"); a.href = url; a.target = "_blank"; a.rel = "noopener";
-        const img = el("img"); img.src = url; img.alt = p.name || "사진"; img.loading = "lazy";
+        const img = el("img"); img.src = url; img.alt = p.name || "Photo"; img.loading = "lazy";
         a.append(img); media.append(a);
       } else {
         const a = el("a", "tag", `📎 ${p.name || p.type}`); a.href = url; media.append(a);
@@ -348,11 +348,11 @@ function renderMsg(m) {
     });
     li.append(media);
   }
-  if (m.pruned) li.append(el("div", "muted small", "첨부 정리됨 (저장공간 확보를 위해 사진 삭제, 글은 유지)"));
+  if (m.pruned) li.append(el("div", "muted small", "Attachments removed (photos deleted to free up storage, text kept)"));
   if (m.error) li.append(el("div", "muted small", m.error));
   const act = el("div", "msg-actions");
   if (m.number) {
-    const r = el("button", "ghost small", "답장");
+    const r = el("button", "ghost small", "Reply");
     r.addEventListener("click", () => {
       const f = $("#sms-form"); f.number.value = fmtNum(m.number); f.text.focus();
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -360,13 +360,13 @@ function renderMsg(m) {
     act.append(r);
   }
   if (m.kind === "mms" && (m.status === "error" || m.status === "pending")) {
-    const r = el("button", "ghost small", "다시 받기");
-    r.addEventListener("click", () => api("/api/messages/retry", { id: m.id }).then(() => toast("다시 받는 중…")).catch((e) => toast(e.message)));
+    const r = el("button", "ghost small", "Retry download");
+    r.addEventListener("click", () => api("/api/messages/retry", { id: m.id }).then(() => toast("Retrying download…")).catch((e) => toast(e.message)));
     act.append(r);
   }
-  const d = el("button", "ghost small", "삭제");
+  const d = el("button", "ghost small", "Delete");
   d.addEventListener("click", async () => {
-    if (!confirm("이 문자를 삭제할까요?")) return;
+    if (!confirm("Delete this message?")) return;
     try { await api("/api/messages/delete", { ids: [m.id] }); li.remove(); } catch (e) { toast(e.message); }
   });
   act.append(d);
@@ -379,12 +379,12 @@ async function loadSms(more = false) {
   const list = $("#sms-list");
   const items = r.messages.map(renderMsg);
   if (more) list.append(...items); else list.replaceChildren(...items);
-  if (!more && !items.length) list.append(el("li", "muted", "문자가 없습니다"));
+  if (!more && !items.length) list.append(el("li", "muted", "No messages"));
   const last = r.messages[r.messages.length - 1];
   if (last) smsOldest = `${last.ts}:${last.id}`;
   $("#sms-more").classList.toggle("hidden", r.messages.length < 50);
-  $("#sms-info").textContent = r.error ? `수집 오류: ${r.error}` :
-    r.last_poll ? `마지막 확인 ${fmtTime(r.last_poll)} · 15초마다 자동 수신` : "";
+  $("#sms-info").textContent = r.error ? `Fetch error: ${r.error}` :
+    r.last_poll ? `Last checked ${fmtTime(r.last_poll)} · checks every 15 seconds` : "";
   setSmsBadge(r.unread);
   syncBulk();
   const unread = r.messages.filter((m) => m.direction === "in" && !m.read).map((m) => m.id);
@@ -394,20 +394,20 @@ function selectedIds() { return $$(".msg-sel:checked").map((c) => +c.dataset.id)
 function syncBulk() {
   const n = selectedIds().length;
   $("#sms-delsel").disabled = !n;
-  $("#sms-delsel").textContent = n ? `선택 삭제 (${n})` : "선택 삭제";
+  $("#sms-delsel").textContent = n ? `Delete selected (${n})` : "Delete selected";
 }
 $("#sms-selall").addEventListener("change", (e) => { $$(".msg-sel").forEach((c) => { c.checked = e.target.checked; }); syncBulk(); });
 $("#sms-delsel").addEventListener("click", async () => {
   const ids = selectedIds();
-  if (!ids.length || !confirm(`선택한 문자 ${ids.length}건을 삭제할까요?`)) return;
-  try { const r = await api("/api/messages/delete", { ids }); toast(`${r.deleted}건 삭제`); $("#sms-selall").checked = false; loadSms(); }
+  if (!ids.length || !confirm(`Delete ${ids.length} selected message(s)?`)) return;
+  try { const r = await api("/api/messages/delete", { ids }); toast(`${r.deleted} deleted`); $("#sms-selall").checked = false; loadSms(); }
   catch (e) { toast(e.message); }
 });
 $("#sms-delold").addEventListener("click", async () => {
   const days = +$("#sms-olddays").value;
   const label = $("#sms-olddays").selectedOptions[0].textContent;
-  if (!confirm(`${label} 넘게 지난 문자를 모두 삭제할까요? (사진 포함, 되돌릴 수 없음)`)) return;
-  try { const r = await api("/api/messages/delete", { older_than_days: days }); toast(`${r.deleted}건 삭제`); loadSms(); }
+  if (!confirm(`Delete all messages older than ${label}? (Photos included. This cannot be undone.)`)) return;
+  try { const r = await api("/api/messages/delete", { older_than_days: days }); toast(`${r.deleted} deleted`); loadSms(); }
   catch (e) { toast(e.message); }
 });
 
@@ -419,9 +419,9 @@ $("#sms-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const f = e.target;
   const mms = mmsMode();
-  if (!mms && !f.text.value.trim()) { setResult(f, "내용을 입력하세요.", false); return; }
+  if (!mms && !f.text.value.trim()) { setResult(f, "Enter a message.", false); return; }
   const { parts } = smsSegments(f.text.value);
-  if (!mms && parts > 1 && !confirm(`긴 문자라 SMS ${parts}건으로 나뉘어 발송됩니다. 보낼까요?`)) return;
+  if (!mms && parts > 1 && !confirm(`This message is long and will be sent as ${parts} SMS. Send it?`)) return;
   busy($("button.primary", f), async () => {
     try {
       if (mms) {
@@ -432,7 +432,7 @@ $("#sms-form").addEventListener("submit", (e) => {
       } else {
         await api("/api/messages/send", { number: f.number.value, text: f.text.value });
       }
-      setResult(f, "보냈습니다.", true);
+      setResult(f, "Sent.", true);
       f.text.value = "";
       f.subject.value = "";
       $("#sms-subj-row").classList.add("hidden");
@@ -457,7 +457,7 @@ async function loadWifi() {
   f.max_clients.value = w.max_clients || 0;
   f.hidden.checked = w.hidden;
   f.isolate.checked = w.isolate;
-  setResult(f, w.running ? "" : "WiFi(hostapd)가 꺼져 있습니다", w.running);
+  setResult(f, w.running ? "" : "WiFi (hostapd) is not running", w.running);
 }
 
 $("#wifi-form").addEventListener("submit", (e) => {
@@ -471,13 +471,13 @@ $("#wifi-form").addEventListener("submit", (e) => {
   busy($("button", f), async () => {
     try {
       await api("/api/wifi", body);
-      setResult(f, "저장했습니다. WiFi가 재시작됩니다.", true);
+      setResult(f, "Saved. WiFi is restarting.", true);
       f.password.value = "";
     } catch (err) { setResult(f, err.message, false); }
   });
 });
 
-// ---------- 인터넷 ----------
+// ---------- Internet ----------
 function syncApnFieldset() {
   $("#apn-manual").disabled = $('#apn-form input[name="apn_mode"]:checked')?.value !== "manual";
 }
@@ -491,11 +491,11 @@ async function loadUsage() {
   f.warn_pct.value = u.warn_pct;
   f.block.checked = u.block_over_cap;
   kv($("#usage-info"), [
-    ["이번 기간", `${u.period.start} ~ (매월 ${u.reset_day}일 초기화)`],
-    ["사용", `${fmtBytes(u.period.used)}${u.cap_bytes ? ` / ${fmtBytes(u.cap_bytes)} (${u.percent}%)` : ""}`],
-    ["받음 / 보냄", `${fmtBytes(u.period.rx)} / ${fmtBytes(u.period.tx)}`],
-    ["오늘", `↓${fmtBytes(u.today.rx)} ↑${fmtBytes(u.today.tx)}`],
-  ].concat(u.blocked_now ? [["상태", "⛔ 한도 초과로 차단 중"]] : []));
+    ["Current period", `${u.period.start} ~ (resets on day ${u.reset_day} of each month)`],
+    ["Used", `${fmtBytes(u.period.used)}${u.cap_bytes ? ` / ${fmtBytes(u.cap_bytes)} (${u.percent}%)` : ""}`],
+    ["Received / Sent", `${fmtBytes(u.period.rx)} / ${fmtBytes(u.period.tx)}`],
+    ["Today", `↓${fmtBytes(u.today.rx)} ↑${fmtBytes(u.today.tx)}`],
+  ].concat(u.blocked_now ? [["Status", "⛔ Blocked: over the limit"]] : []));
   const max = Math.max(1, ...u.days.map((d) => d.rx + d.tx));
   const today = new Date().toISOString().slice(0, 10);
   $("#usage-days").replaceChildren(...u.days.map((d) => {
@@ -511,13 +511,13 @@ $("#usage-form").addEventListener("submit", (e) => {
   busy($("button.primary", f), async () => {
     try {
       await api("/api/usage", { cap_gb: +f.cap_gb.value || 0, reset_day: +f.reset_day.value, warn_pct: +f.warn_pct.value, block: f.block.checked });
-      setResult(f, "저장했습니다.", true); loadUsage().catch(() => {});
+      setResult(f, "Saved.", true); loadUsage().catch(() => {});
     } catch (err) { setResult(f, err.message, false); }
   });
 });
 $("#usage-reset").addEventListener("click", async () => {
-  if (!confirm("지금까지 쌓인 데이터 사용량 기록을 모두 지울까요?")) return;
-  try { await api("/api/usage/reset", {}); toast("사용량 기록을 초기화했습니다"); loadUsage(); } catch (e) { toast(e.message); }
+  if (!confirm("Erase all recorded data usage history?")) return;
+  try { await api("/api/usage/reset", {}); toast("Usage history reset"); loadUsage(); } catch (e) { toast(e.message); }
 });
 
 async function loadWan() {
@@ -535,18 +535,18 @@ async function loadWan() {
   syncApnFieldset();
   const b = w.bearer;
   kv($("#bearer-info"), b ? [
-    ["현재 APN", b.apn], ["IP", b.ipv4], ["IP 타입", b.ip_type], ["DNS", (b.dns || []).join(", ")],
-  ] : [["상태", "연결 안 됨"]]);
+    ["Current APN", b.apn], ["IP", b.ipv4], ["IP type", b.ip_type], ["DNS", (b.dns || []).join(", ")],
+  ] : [["Status", "Not connected"]]);
 }
 
 $("#data-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const f = e.target;
-  if (!f.data_enabled.checked && !confirm("모바일 데이터를 끄면 이 동글을 통한 인터넷이 모두 끊깁니다. 계속할까요?")) return;
+  if (!f.data_enabled.checked && !confirm("Turning off mobile data cuts all internet access through this dongle. Continue?")) return;
   busy($("button", f), async () => {
     try {
       await api("/api/wan/data", { data_enabled: f.data_enabled.checked, roaming_allowed: f.roaming_allowed.checked });
-      setResult(f, "저장했습니다.", true);
+      setResult(f, "Saved.", true);
       loadWan().catch(() => {});
     } catch (err) { setResult(f, err.message, false); }
   });
@@ -556,23 +556,23 @@ $("#apn-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const f = e.target;
   const mode = $('input[name="apn_mode"]:checked', f)?.value;
-  if (!mode) { setResult(f, "자동/수동을 선택하세요", false); return; }
+  if (!mode) { setResult(f, "Choose automatic or manual", false); return; }
   const body = { apn_mode: mode, ip_type: f.ip_type.value };
   if (mode === "manual") Object.assign(body, { apn: f.apn.value.trim(), username: f.username.value, password: f.password.value });
-  setResult(f, "LTE 재연결 중… (최대 1~2분)", true);
+  setResult(f, "Reconnecting LTE… (up to 1–2 minutes)", true);
   busy($("button", f), async () => {
     try {
       const r = await api("/api/wan/apn", body);
-      if (r.ok) setResult(f, `연결 성공 — IP ${r.bearer?.ipv4 || "-"}`, true);
-      else setResult(f, `${r.error}${r.restored_connected ? " (이전 설정으로 연결 복구됨)" : ""}`, false);
+      if (r.ok) setResult(f, `Connected — IP ${r.bearer?.ipv4 || "-"}`, true);
+      else setResult(f, `${r.error}${r.restored_connected ? " (connection restored with the previous settings)" : ""}`, false);
       loadWan().catch(() => {});
     } catch (err) { setResult(f, err.message, false); }
   });
 });
 
-// ---------- 접속 기기 ----------
+// ---------- Clients ----------
 async function setBlock(mac, name, block) {
-  if (block && !confirm(`${name || mac} 기기의 인터넷을 차단할까요?`)) return;
+  if (block && !confirm(`Block internet access for ${name || mac}?`)) return;
   try { await api(block ? "/api/clients/block" : "/api/clients/unblock", { mac, name }); loadClients(); }
   catch (e) { toast(e.message); }
 }
@@ -582,9 +582,9 @@ async function loadClients() {
   const bl = $("#blocked-list");
   bl.replaceChildren(...(offline || []).map((b) => {
     const li = el("li");
-    const btn = el("button", "ghost small", "해제");
+    const btn = el("button", "ghost small", "Unblock");
     btn.addEventListener("click", () => setBlock(b.mac, b.name, false));
-    li.append(el("span", "", `${b.name || "(이름 없음)"} · ${b.mac}`), btn);
+    li.append(el("span", "", `${b.name || "(no name)"} · ${b.mac}`), btn);
     return li;
   }));
   $("#blocked-card").classList.toggle("hidden", !(offline || []).length);
@@ -592,19 +592,19 @@ async function loadClients() {
   if (!clients.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 6; td.className = "muted"; td.textContent = "접속한 기기가 없습니다";
+    td.colSpan = 6; td.className = "muted"; td.textContent = "No clients connected";
     tr.append(td); body.replaceChildren(tr); return;
   }
   body.replaceChildren(...clients.map((c) => {
     const tr = document.createElement("tr");
-    [["이름", c.name || "(이름 없음)"], ["IP", c.ip || "-"], ["MAC", c.mac],
-     ["연결", c.via + (c.signal_dbm != null ? ` (${Math.round(c.signal_dbm)} dBm)` : "")],
-     ["접속 시간", c.connected_sec != null ? fmtDur(c.connected_sec) : "-"]].forEach(([label, v]) => {
+    [["Name", c.name || "(no name)"], ["IP", c.ip || "-"], ["MAC", c.mac],
+     ["Connection", c.via + (c.signal_dbm != null ? ` (${Math.round(c.signal_dbm)} dBm)` : "")],
+     ["Connected", c.connected_sec != null ? fmtDur(c.connected_sec) : "-"]].forEach(([label, v]) => {
       const td = document.createElement("td");
       td.dataset.label = label; td.textContent = v; tr.append(td);
     });
-    const td = el("td"); td.dataset.label = "인터넷";
-    const btn = el("button", c.blocked ? "danger small" : "ghost small", c.blocked ? "차단됨 · 해제" : "차단");
+    const td = el("td"); td.dataset.label = "Internet";
+    const btn = el("button", c.blocked ? "danger small" : "ghost small", c.blocked ? "Blocked · Unblock" : "Block");
     btn.addEventListener("click", () => setBlock(c.mac, c.name, !c.blocked));
     td.append(btn); tr.append(td);
     return tr;
@@ -612,7 +612,7 @@ async function loadClients() {
 }
 $("#clients-refresh").addEventListener("click", () => loadClients().catch((e) => toast(e.message)));
 
-// ---------- 진단 ----------
+// ---------- Diagnostics ----------
 async function loadDiag() {
   const d = await api("/api/dns");
   $("#dns-presets").replaceChildren(...d.presets.map((p) => {
@@ -621,28 +621,28 @@ async function loadDiag() {
     l.append(r, document.createTextNode(" " + p.label));
     return l;
   }));
-  setResult($("#dns-form"), d.state === "active" ? "" : `dnsproxy 상태: ${d.state}`, d.state === "active");
+  setResult($("#dns-form"), d.state === "active" ? "" : `dnsproxy status: ${d.state}`, d.state === "active");
 }
 $("#dns-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const f = e.target;
   const preset = $('input[name="preset"]:checked', f)?.value;
   if (!preset) return;
-  setResult(f, "적용 중… (최대 1분 정도 걸릴 수 있습니다)", true);
+  setResult(f, "Applying… (may take up to a minute)", true);
   busy($("button", f), async () => {
-    try { await api("/api/dns", { preset }); setResult(f, "적용했습니다.", true); }
+    try { await api("/api/dns", { preset }); setResult(f, "Applied.", true); }
     catch (err) { setResult(f, err.message, false); loadDiag().catch(() => {}); }
   });
 });
 $$("#diag-form button[data-kind]").forEach((b) => b.addEventListener("click", () => {
   const kind = b.dataset.kind, host = $("#diag-form").host.value.trim(), out = $("#diag-out");
   out.classList.remove("hidden");
-  out.textContent = kind === "traceroute" ? "경로 추적 중… (최대 20~40초)" : "실행 중…";
+  out.textContent = kind === "traceroute" ? "Tracing route… (up to 20–40 seconds)" : "Running…";
   busy(b, async () => {
     try {
       const r = await api("/api/diag", { kind, host });
       if (kind === "ping") out.textContent = r.text;
-      else if (kind === "lookup") out.textContent = `${r.name} (조회: ${r.server})\nA     ${r.A.join(", ") || "-"}\nAAAA  ${r.AAAA.join(", ") || "-"}`;
+      else if (kind === "lookup") out.textContent = `${r.name} (server: ${r.server})\nA     ${r.A.join(", ") || "-"}\nAAAA  ${r.AAAA.join(", ") || "-"}`;
       else out.textContent = r.hops.map((h) => `${String(h.ttl).padStart(2)}  ${h.ip || "*"}${h.ms != null ? `  ${h.ms} ms` : ""}`).join("\n");
     } catch (err) { out.textContent = err.message; }
   });
@@ -650,31 +650,31 @@ $$("#diag-form button[data-kind]").forEach((b) => b.addEventListener("click", ()
 $("#speed-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const f = e.target, mb = +f.mb.value;
-  if (!confirm(`LTE 데이터 ${mb} MB를 사용합니다. 측정할까요?`)) return;
-  setResult(f, "측정 중…", true);
+  if (!confirm(`This uses ${mb} MB of LTE data. Run the test?`)) return;
+  setResult(f, "Testing…", true);
   busy($("button", f), async () => {
-    try { const r = await api("/api/diag", { kind: "speedtest", mb }); setResult(f, `다운로드 ${r.mbps} Mbps (${fmtBytes(r.bytes)}, ${r.seconds}초)`, true); }
+    try { const r = await api("/api/diag", { kind: "speedtest", mb }); setResult(f, `Download ${r.mbps} Mbps (${fmtBytes(r.bytes)}, ${r.seconds} s)`, true); }
     catch (err) { setResult(f, err.message, false); }
   });
 });
 
-// ---------- 기기 관리 ----------
+// ---------- Device ----------
 async function loadSystem() {
   const s = await api("/api/system");
   $("#leds-on").checked = s.leds === "on";
   const tz = $("#tz");
   if (![...tz.options].some((o) => o.value === s.time.timezone)) tz.add(new Option(s.time.timezone, s.time.timezone));
   tz.value = s.time.timezone;
-  $("#time-info").textContent = `현재 ${s.time.local}${s.time.ntp_synced ? " · 시간 동기화됨" : " · 시간 동기화 안 됨"}`;
+  $("#time-info").textContent = `Now ${s.time.local}${s.time.ntp_synced ? " · time synced" : " · time not synced"}`;
   $("#svc-body").replaceChildren(...s.services.map((v) => {
     const tr = el("tr");
     const st = el("td", v.state === "active" ? "state-active" : "state-bad", v.state);
     const act = el("td");
     if (v.can_restart) {
-      const b = el("button", "ghost small", "재시작");
+      const b = el("button", "ghost small", "Restart");
       b.addEventListener("click", () => {
-        if (!confirm(`${v.name} 재시작: ${v.warning}. 계속할까요?`)) return;
-        busy(b, async () => { try { await api("/api/system/restart", { name: v.name }); toast(`${v.name} 재시작함`); loadSystem(); } catch (e) { toast(e.message); } });
+        if (!confirm(`Restart ${v.name}: ${v.warning}. Continue?`)) return;
+        busy(b, async () => { try { await api("/api/system/restart", { name: v.name }); toast(`${v.name} restarted`); loadSystem(); } catch (e) { toast(e.message); } });
       });
       act.append(b);
     }
@@ -682,14 +682,14 @@ async function loadSystem() {
     return tr;
   }));
 }
-$("#leds-on").addEventListener("change", (e) => api("/api/system/leds", { mode: e.target.checked ? "on" : "off" }).then(() => toast("표시등 설정을 바꿨습니다")).catch((err) => toast(err.message)));
-$("#tz").addEventListener("change", (e) => api("/api/system/timezone", { timezone: e.target.value }).then(() => { toast("시간대를 바꿨습니다"); loadSystem(); }).catch((err) => toast(err.message)));
+$("#leds-on").addEventListener("change", (e) => api("/api/system/leds", { mode: e.target.checked ? "on" : "off" }).then(() => toast("LED setting updated")).catch((err) => toast(err.message)));
+$("#tz").addEventListener("change", (e) => api("/api/system/timezone", { timezone: e.target.value }).then(() => { toast("Time zone updated"); loadSystem(); }).catch((err) => toast(err.message)));
 $("#svc-refresh").addEventListener("click", () => loadSystem().catch((e) => toast(e.message)));
 $("#log-load").addEventListener("click", (e) => busy(e.target, async () => {
   const out = $("#log-out");
   try {
     const r = await api(`/api/logs?unit=${$("#log-unit").value}&lines=${$("#log-lines").value}`);
-    out.textContent = r.text || "(로그 없음)";
+    out.textContent = r.text || "(no logs)";
     out.classList.remove("hidden");
     out.scrollTop = out.scrollHeight;
   } catch (err) { toast(err.message); }
@@ -699,9 +699,9 @@ async function loadDevice() {
   loadSystem().catch((e) => toast(e.message));
   const d = await api("/api/device");
   kv($("#device-info"), [
-    ["모델", d.model], ["호스트명", d.hostname], ["OS", d.os], ["커널", d.kernel],
-    ["IMEI", d.imei], ["모뎀 펌웨어", d.modem_firmware], ["SIM 통신사", d.sim_operator],
-    ["ICCID", d.iccid], ["IMSI", d.imsi], ["관리 IP", d.lan_ip],
+    ["Model", d.model], ["Hostname", d.hostname], ["OS", d.os], ["Kernel", d.kernel],
+    ["IMEI", d.imei], ["Modem firmware", d.modem_firmware], ["SIM carrier", d.sim_operator],
+    ["ICCID", d.iccid], ["IMSI", d.imsi], ["Admin IP", d.lan_ip],
   ]);
   loadTelegram().catch((e) => toast(e.message));
   loadThermal().catch((e) => toast(e.message));
@@ -713,11 +713,11 @@ async function loadThermal() {
   f.enabled.checked = t.enabled;
   f.warn_c.value = t.warn_c;
   const now = $("#thermal-now");
-  now.textContent = t.current_c != null ? `현재 ${Math.round(t.current_c)}°C` : "-";
+  now.textContent = t.current_c != null ? `Now ${Math.round(t.current_c)}°C` : "-";
   now.className = "tag" + (t.current_c != null && t.current_c >= t.warn_c ? " err" : "");
   $("#thermal-zones").textContent = Object.entries(t.zones || {})
     .map(([k, v]) => `${k.replace(/-thermal$/, "")} ${Math.round(v)}°C`).join(" · ")
-    + (t.has_telegram ? "" : "  — 텔레그램 미설정");
+    + (t.has_telegram ? "" : "  — Telegram not set up");
 }
 
 $("#thermal-form").addEventListener("submit", (e) => {
@@ -726,7 +726,7 @@ $("#thermal-form").addEventListener("submit", (e) => {
   busy($("button.primary", f), async () => {
     try {
       await api("/api/thermal", { enabled: f.enabled.checked, warn_c: +f.warn_c.value });
-      setResult(f, "저장했습니다.", true);
+      setResult(f, "Saved.", true);
       loadThermal().catch(() => {});
     } catch (err) { setResult(f, err.message, false); }
   });
@@ -739,7 +739,7 @@ async function loadTelegram() {
   f.chat_id.value = t.chat_id || "";
   f.send_media.checked = t.send_media;
   f.token.value = "";
-  f.token.placeholder = t.has_token ? "저장됨 — 바꿀 때만 입력" : "123456789:ABCdef...";
+  f.token.placeholder = t.has_token ? "Saved — enter only to change" : "123456789:ABCdef...";
 }
 
 $("#tg-form").addEventListener("submit", (e) => {
@@ -751,7 +751,7 @@ $("#tg-form").addEventListener("submit", (e) => {
         enabled: f.enabled.checked, chat_id: f.chat_id.value,
         token: f.token.value, send_media: f.send_media.checked,
       });
-      setResult(f, "저장했습니다.", true);
+      setResult(f, "Saved.", true);
       loadTelegram().catch(() => {});
     } catch (err) { setResult(f, err.message, false); }
   });
@@ -765,36 +765,36 @@ $("#tg-test").addEventListener("click", (e) => busy(e.target, async () => {
     });
     f.token.value = "";
     await api("/api/telegram/test", {});
-    setResult(f, "테스트 메시지를 보냈습니다. 텔레그램을 확인하세요.", true);
+    setResult(f, "Test message sent. Check Telegram.", true);
   } catch (err) { setResult(f, err.message, false); }
 }));
 
 $("#pw-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const f = e.target;
-  if (f.new.value !== f.new2.value) { setResult(f, "새 비밀번호 확인이 다릅니다", false); return; }
+  if (f.new.value !== f.new2.value) { setResult(f, "New passwords do not match", false); return; }
   busy($("button", f), async () => {
     try {
       const r = await api("/api/password", { old: f.old.value, new: f.new.value });
       csrf = r.csrf;
       f.reset();
-      setResult(f, "변경했습니다. 다른 기기의 로그인은 모두 해제됩니다.", true);
+      setResult(f, "Password changed. All other devices have been logged out.", true);
     } catch (err) { setResult(f, err.message, false); }
   });
 });
 
 $("#reboot").addEventListener("click", (e) => {
-  if (!confirm("기기를 재부팅할까요? 약 1분간 인터넷이 끊깁니다.")) return;
+  if (!confirm("Reboot the device? Internet will be down for about a minute.")) return;
   busy(e.target, async () => {
     try {
       await api("/api/reboot", {});
       stopPoll();
-      $("#reboot-result").textContent = "재부팅 중입니다. 1분 후 새로고침하세요.";
+      $("#reboot-result").textContent = "Rebooting. Refresh this page in a minute.";
     } catch (err) { $("#reboot-result").textContent = err.message; }
   });
 });
 
-// ---------- 시작 ----------
+// ---------- Startup ----------
 (async () => {
   try {
     const s = await api("/api/session");

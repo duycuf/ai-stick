@@ -168,17 +168,17 @@ class NetCtl:
         if "cap_gb" in d:
             v = float(d["cap_gb"] or 0)
             if not 0 <= v <= 10000:
-                raise ValueError("월 한도는 0(없음)~10000 GB")
+                raise ValueError("Monthly cap must be 0 (none) to 10000 GB")
             kv["usage_cap_gb"] = v
         if "reset_day" in d:
             v = int(d["reset_day"])
             if not 1 <= v <= 28:
-                raise ValueError("초기화일은 1~28일")
+                raise ValueError("Reset day must be 1-28")
             kv["usage_reset_day"] = v
         if "warn_pct" in d:
             v = int(d["warn_pct"])
             if not 10 <= v <= 100:
-                raise ValueError("경고 기준은 10~100%")
+                raise ValueError("Warning threshold must be 10-100%")
             kv["usage_warn_pct"] = v
         if "block" in d:
             kv["usage_block"] = bool(d["block"])
@@ -219,9 +219,9 @@ class NetCtl:
     def block(self, mac, name, requester_mac):
         mac = (mac or "").lower()
         if not MAC_RE.fullmatch(mac):
-            raise ValueError("MAC 주소 형식 오류")
+            raise ValueError("Invalid MAC address format")
         if requester_mac and mac == requester_mac.lower():
-            raise ValueError("지금 접속 중인 이 기기는 차단할 수 없습니다")
+            raise ValueError("Cannot block the device you are using right now")
         lst = [b for b in self.blocked() if b["mac"] != mac]
         lst.append({"mac": mac, "name": (name or "")[:64] or None, "since": int(time.time())})
         self.s.update(blocked=lst)
@@ -232,7 +232,7 @@ class NetCtl:
     def unblock(self, mac):
         mac = (mac or "").lower()
         if not MAC_RE.fullmatch(mac):
-            raise ValueError("MAC 주소 형식 오류")
+            raise ValueError("Invalid MAC address format")
         self.s.update(blocked=[b for b in self.blocked() if b["mac"] != mac])
         _nft("delete", "element", "inet", "osa", "blocked", "{ " + mac + " }", check=False)
         return {"ok": True}
