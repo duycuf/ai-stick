@@ -108,8 +108,15 @@ bash /install_dnsproxy.sh systemd
 
 # Ensure NetworkManager and systemd-resolved are enabled and managing DNS (offline enable inside chroot)
 systemctl enable NetworkManager || true
-systemctl enable systemd-resolved || true
-ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+# systemd-resolved is not installed in this image (trixie ships it as a separate package), so a
+# symlink to its stub file left the stick itself unable to resolve any name: no NTP, no HTTPS.
+# The stick resolves through its own dnsmasq -> dnsproxy chain instead. NetworkManager is set to
+# rc-manager=unmanaged, so it leaves this file alone.
+systemctl enable systemd-resolved 2>/dev/null || true
+rm -f /etc/resolv.conf
+printf '# The stick resolves through its own dnsmasq -> dnsproxy chain
+nameserver 127.0.0.1
+' > /etc/resolv.conf
 
 # Ensure DHCP/DNS for USB and WIFI is active (for clients on br0)
 systemctl enable dnsmasq
