@@ -144,11 +144,17 @@ async function loadStatus() {
   $("#d-rsrp").textContent = dash(m.rsrp, " dBm");
   $("#d-rsrq").textContent = dash(m.rsrq, " dB");
   $("#d-snr").textContent = dash(m.snr, " dB");
-  $("#d-conn").textContent = w.connected ? "Connected" : "Not connected";
-  $("#d-conn").style.color = w.connected ? "var(--ok)" : "var(--danger)";
-  $("#d-op").textContent = m.operator || "-";
-  $("#d-tech").textContent = (m.access_tech || []).join(", ").toUpperCase() || "-";
-  $("#d-ip").textContent = w.ipv4 || "-";
+  const wf = s.wifi;                             // the stick has joined a WiFi network: that is its internet
+  const viaWifi = wf && wf.connected && !w.connected;
+  const online = w.connected || viaWifi;
+  $("#d-conn").textContent = viaWifi ? "Connected over WiFi" : w.connected ? "Connected" : wf ? "WiFi: reconnecting…" : "Not connected";
+  $("#d-conn").style.color = online ? "var(--ok)" : "var(--danger)";
+  $("#d-op").textContent = viaWifi ? wf.ssid : m.operator || "-";
+  $("#d-tech").textContent = viaWifi
+    ? `WiFi${wf.signal_dbm != null ? ` · ${wf.signal_dbm} dBm` : ""}`
+    : (m.access_tech || []).join(", ").toUpperCase() || "-";
+  $("#d-ip").textContent = viaWifi ? wf.ip : w.ipv4 || "-";
+  if (viaWifi) $("#top-op").textContent = `${wf.ssid} WiFi`;
   $("#d-apn").textContent = w.apn || "-";
   $("#d-sim").textContent = m.sim || "-";
 
@@ -457,8 +463,103 @@ async function loadWifi() {
   f.max_clients.value = w.max_clients || 0;
   f.hidden.checked = w.hidden;
   f.isolate.checked = w.isolate;
-  setResult(f, w.running ? "" : "WiFi (hostapd) is not running", w.running);
+  const off = w.mode === "client";
+  setResult(f, off ? "Off while joined to another network. Changes are kept for later." : w.running ? "" : "WiFi (hostapd) is not running", off || w.running);
+  loadWifiClient().catch(() => {});
 }
+
+// ---------- WiFi client (join another network) ----------
+let wcPick = null;
+
+function showWifiClient(c) {
+  const card = $("#wc-card");
+  $("#wc-status", card).textContent = c.mode !== "client"
+    ? "Not joined. The stick is broadcasting its own WiFi."
+    : c.connected
+      ? `Joined "${c.ssid}" · IP ${c.ip}${c.signal_dbm != null ? ` · ${c.signal_dbm} dBm` : ""}`
+      : `Trying to reach "${c.saved_ssid || "?"}"… it keeps retrying on its own.`;
+  $("#wc-leave").classList.toggle("hidden", c.mode !== "client");
+}
+
+async function loadWifiClient() { showWifiClient(await api("/api/wifi/client")); }
+
+function wcCloseForm() {
+  wcPick = null;
+  $("#wc-form").classList.add("hidden");
+  $("#wc-form").password.value = "";
+}
+
+$("#wc-scan").addEventListener("click", (e) => busy(e.target, async () => {
+  const card = $("#wc-card");
+  wcCloseForm();
+  setResult(card, "Scanning…", true);
+  try {
+    const r = await api("/api/wifi/client/scan", {});
+    $("#wc-list").replaceChildren(...r.networks.map((n) => {
+      const tr = document.createElement("tr");
+      const cell = (label, text) => {
+        const td = document.createElement("td");
+        td.dataset.label = label; td.textContent = text; tr.append(td); return td;
+      };
+      cell("Network", n.ssid);
+      cell("Signal", n.signal_dbm != null ? `${n.signal_dbm} dBm` : "-");
+      cell("Security", n.security);
+      const act = cell("", "");
+      if (n.supported) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "small"; b.textContent = "Join";
+        b.addEventListener("click", () => wcChoose(n));
+        act.append(b);
+      } else { act.textContent = "not supported"; act.className = "muted small"; }
+      return tr;
+    }));
+    $("#wc-table").classList.toggle("hidden", !r.networks.length);
+    setResult(card, r.networks.length ? "" : "No networks found. The radio is 2.4 GHz only.", !!r.networks.length);
+  } catch (err) { setResult(card, err.message, false); }
+}));
+
+function wcChoose(n) {
+  wcPick = n;
+  const f = $("#wc-form");
+  const open = n.security === "Open";
+  $("#wc-form-title").textContent = open ? `"${n.ssid}" is an open network` : `Password for "${n.ssid}"`;
+  f.password.classList.toggle("hidden", open);
+  f.password.required = !open;
+  f.classList.remove("hidden");
+  if (!open) f.password.focus();
+}
+
+$("#wc-cancel").addEventListener("click", wcCloseForm);
+
+$("#wc-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!wcPick) return;
+  const card = $("#wc-card");
+  const body = { ssid: wcPick.ssid, security: wcPick.security, password: e.target.password.value };
+  busy($("button", e.target), async () => {
+    setResult(card, `Joining "${wcPick.ssid}"… this can take up to a minute.`, true);
+    try {
+      const c = await api("/api/wifi/client/join", body);
+      wcCloseForm();
+      $("#wc-table").classList.add("hidden");
+      showWifiClient(c);
+      setResult(card, "Joined.", true);
+      loadWifi().catch(() => {});
+    } catch (err) { setResult(card, err.message, false); loadWifiClient().catch(() => {}); }
+  });
+});
+
+$("#wc-leave").addEventListener("click", (e) => {
+  if (!confirm("Forget the joined network and broadcast the stick's own WiFi again?")) return;
+  busy(e.target, async () => {
+    const card = $("#wc-card");
+    try {
+      showWifiClient(await api("/api/wifi/client/leave", {}));
+      setResult(card, "Back to broadcasting own WiFi.", true);
+      loadWifi().catch(() => {});
+    } catch (err) { setResult(card, err.message, false); }
+  });
+});
 
 $("#wifi-form").addEventListener("submit", (e) => {
   e.preventDefault();

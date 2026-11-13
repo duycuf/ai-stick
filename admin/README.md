@@ -18,6 +18,7 @@ why it lives in this repository.
 | Login | first visit sets the admin password; logout; change password |
 | Dashboard | LTE signal (bars, RSRP/RSRQ/SINR), connection/operator/WAN IP/APN/SIM, live throughput, data used on the current bearer, clients, uptime/memory/load/temperature (3 s refresh) |
 | WiFi | SSID, password, WPA2 or WPA2+WPA3, channel, max clients, hidden SSID, AP isolation |
+| WiFi client | Scan and join an existing 2.4 GHz network instead of broadcasting one (`wificlient.py`). The radio does one or the other. A failed join puts the previous setup back; the USB network keeps working in both modes |
 | Internet | mobile data on/off, roaming, APN **auto/manual** (user/password/IP type) with **automatic rollback** if the new APN does not connect |
 | Clients | name / IP / MAC / WiFi or USB / signal / connected time |
 | Device | model, OS, kernel, IMEI, modem firmware, ICCID, IMSI; reboot |

@@ -10,6 +10,8 @@ import time
 
 LEDS = "/sys/class/leds"
 LED_WAN, LED_WLAN, LED_POWER = "blue:wan", "green:wlan", "red:power"
+WIFI_CLIENT_MARK = "/etc/NetworkManager/conf.d/99-wifi-client.conf"   # same file wificlient.py uses as its mode flag
+LEDS_EXTERNAL = "/etc/stick-leds.json"    # present = the stick-leds service owns the LEDs; this page keeps its hands off
 LOG_UNITS = {
     "admin": ["-u", "openstick-admin"], "modem": ["-u", "ModemManager"], "network": ["-u", "NetworkManager"],
     "wifi": ["-u", "hostapd"], "dhcp": ["-u", "dnsmasq"], "dns": ["-u", "dnsproxy"],
@@ -73,15 +75,27 @@ class SysTools:
     # ---------------- LEDs
     def apply_leds(self):
         on = self.s.get("leds", "on") == "on"
-        if not os.path.isdir(LEDS):
+        if not os.path.isdir(LEDS) or os.path.exists(LEDS_EXTERNAL):
             return
         _write(f"{LEDS}/{LED_POWER}/trigger", "default-on" if on else "none")
-        _write(f"{LEDS}/{LED_WLAN}/trigger", "phy0radio" if on else "none")
+        self._wlan_trigger = None
+        self._update_wlan_led()
         _write(f"{LEDS}/{LED_WAN}/trigger", "none")
         for led in (LED_POWER, LED_WLAN, LED_WAN):
             if not on:
                 _write(f"{LEDS}/{led}/brightness", "0")
         self._update_wan_led()
+
+    def _update_wlan_led(self):
+        """Green LED: lit while broadcasting (access point), or while joined to a network (WiFi client).
+        phy0radio stays dark in client mode on this board, so client mode uses phy0assoc instead."""
+        if self.s.get("leds", "on") != "on":
+            want = "none"
+        else:
+            want = "phy0assoc" if os.path.exists(WIFI_CLIENT_MARK) else "phy0radio"
+        if want != getattr(self, "_wlan_trigger", None):
+            _write(f"{LEDS}/{LED_WLAN}/trigger", want)
+            self._wlan_trigger = want
 
     def _update_wan_led(self):
         on = self.s.get("leds", "on") == "on" and self.wan_connected()
@@ -90,7 +104,9 @@ class SysTools:
     def _led_loop(self):
         while True:
             try:
-                self._update_wan_led()
+                if not os.path.exists(LEDS_EXTERNAL):
+                    self._update_wan_led()
+                    self._update_wlan_led()      # follows a switch between access point and client mode
             except Exception:  # noqa: BLE001
                 pass
             time.sleep(15)

@@ -13,6 +13,7 @@ import time
 import netctl
 import sms
 import systools
+import wificlient
 
 LTE_CONN = "lte"                 # NetworkManager connection name
 HOSTAPD_CONF = "/etc/hostapd/hostapd.conf"
@@ -107,7 +108,9 @@ class Backend:
         sig = mmcli_json("-m", "any", "--signal-get").get("modem", {}).get("signal", {})
         lte = sig.get("lte", {})
         bearer = self._active_bearer(g.get("bearers") or [])
+        wifi = wificlient.uplink()                # set when the stick has joined a WiFi network
         return {
+            "wifi": wifi,
             "modem": {
                 "state": _v(g.get("state")),
                 "operator": _v(t.get("operator-name")),
@@ -126,8 +129,9 @@ class Backend:
                 "tx_bytes": bearer["tx_bytes"] if bearer else 0,
                 "connected_sec": bearer["duration"] if bearer else None,
                 # for live speed: bridge counters on the client side (br0 tx = bytes sent to clients = download)
-                "lan_down_bytes": int(_read(f"/sys/class/net/{LAN_BRIDGE}/statistics/tx_bytes", "0") or 0),
-                "lan_up_bytes": int(_read(f"/sys/class/net/{LAN_BRIDGE}/statistics/rx_bytes", "0") or 0),
+                # in WiFi client mode the stick itself is the user of the uplink, so show wlan0 traffic
+                "lan_down_bytes": wifi["rx_bytes"] if wifi else int(_read(f"/sys/class/net/{LAN_BRIDGE}/statistics/tx_bytes", "0") or 0),
+                "lan_up_bytes": wifi["tx_bytes"] if wifi else int(_read(f"/sys/class/net/{LAN_BRIDGE}/statistics/rx_bytes", "0") or 0),
                 "ts": time.time(),
             },
             "clients": len(self.clients()["clients"]),
@@ -269,6 +273,7 @@ class Backend:
             "max_clients": (lambda n: None if n == 0 or n >= 2007 else n)(int(cfg.get("max_num_sta", "0") or 0)),
             "isolate": cfg.get("ap_isolate", "0") == "1",
             "running": run(["systemctl", "is-active", "hostapd"], check=False).strip() == "active",
+            "mode": wificlient.mode(),
         }
 
     def wifi_set(self, d):
@@ -325,8 +330,22 @@ class Backend:
                 f.write("\n".join(out) + "\n")
             os.chmod(tmp, 0o600)
             os.replace(tmp, HOSTAPD_CONF)
-            run(["systemctl", "restart", "hostapd"], timeout=30)
+            if wificlient.mode() == "ap":   # in client mode the settings are kept for later
+                run(["systemctl", "restart", "hostapd"], timeout=30)
         return {"ok": True, "applied": sorted(k for k in changes if k != "wpa_passphrase") + (["password"] if "wpa_passphrase" in changes else [])}
+
+    # ================= WiFi client (join another network) =================
+    def wifi_client_get(self):
+        return wificlient.status()
+
+    def wifi_client_scan(self):
+        return wificlient.scan()
+
+    def wifi_client_join(self, d):
+        return wificlient.join(d)
+
+    def wifi_client_leave(self):
+        return wificlient.leave()
 
     # ================= Internet (WAN) / APN =================
     def _nm_get(self):

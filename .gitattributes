@@ -1,0 +1,6 @@
+# Shell scripts and configs end up on a Linux stick: keep LF on every checkout.
+* text=auto eol=lf
+*.bin binary
+*.mbn binary
+*.png binary
+*.jpg binary

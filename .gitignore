@@ -8,3 +8,7 @@ dist
 files
 mnt
 rootfs
+
+# Python caches
+__pycache__/
+

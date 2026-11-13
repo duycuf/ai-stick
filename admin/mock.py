@@ -38,7 +38,10 @@ class Backend:
             self.rx += random.randint(50_000, 900_000)
             self.tx += random.randint(5_000, 120_000)
         b = self._bearer()
+        wc = self.wifi_client
         return {
+            "wifi": ({"connected": True, "ssid": wc["ssid"], "signal_dbm": -48, "ip": wc["ip"],
+                      "rx_bytes": self.rx, "tx_bytes": self.tx} if wc["mode"] == "client" else None),
             "modem": {"state": "connected" if b else "registered", "operator": "KT",
                       "registration": "home", "access_tech": ["lte"], "quality": 81.0,
                       "rsrp": -88.0 + random.uniform(-3, 3), "rsrq": -10.0, "snr": 12.4, "rssi": -61.0,
@@ -72,8 +75,35 @@ class Backend:
     def wifi_get(self):
         w = dict(self.wifi)
         w["has_password"] = bool(w.pop("password"))
-        w["running"] = True
+        w["running"] = self.wifi_client["mode"] == "ap"
+        w["mode"] = self.wifi_client["mode"]
         return w
+
+    wifi_client = {"mode": "ap", "connected": False, "ssid": None, "ip": None, "signal_dbm": None,
+                   "gateway": None, "saved_ssid": None}
+
+    def wifi_client_get(self):
+        return dict(self.wifi_client)
+
+    def wifi_client_scan(self):
+        time.sleep(1.5)
+        return {"mode": self.wifi_client["mode"], "networks": [
+            {"ssid": "Home WiFi", "signal_dbm": -48, "channel": 6, "security": "WPA2", "supported": True},
+            {"ssid": "Cafe Guest", "signal_dbm": -67, "channel": 1, "security": "Open", "supported": True},
+            {"ssid": "Office", "signal_dbm": -80, "channel": 11, "security": "Enterprise", "supported": False},
+        ]}
+
+    def wifi_client_join(self, d):
+        time.sleep(2)
+        if d.get("password") == "wrongpass":
+            raise ValueError(f'Could not join "{d.get("ssid")}" (wrong password?). The previous WiFi setup is back.')
+        self.wifi_client = {"mode": "client", "connected": True, "ssid": d.get("ssid"), "ip": "192.168.1.57",
+                            "signal_dbm": -48, "gateway": "192.168.1.1", "saved_ssid": d.get("ssid")}
+        return dict(self.wifi_client)
+
+    def wifi_client_leave(self):
+        self.wifi_client = dict(self.wifi_client, mode="ap", connected=False, ssid=None, ip=None, saved_ssid=None)
+        return dict(self.wifi_client)
 
     def wifi_set(self, d):
         if "ssid" in d and not 1 <= len(str(d["ssid"]).encode()) <= 32:

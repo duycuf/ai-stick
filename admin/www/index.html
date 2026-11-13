@@ -143,8 +143,28 @@
 
     <!-- WiFi -->
     <section id="tab-wifi" class="tab hidden">
+      <div id="wc-card" class="card form">
+        <h2>Join a WiFi network <button type="button" id="wc-scan" class="ghost small">Scan</button></h2>
+        <p id="wc-status" class="muted">-</p>
+        <p class="warn">The radio can either broadcast its own WiFi or join another one, not both. After joining, this
+          page is reachable over the USB cable only. Scanning turns the stick's own WiFi off for about ten seconds.</p>
+        <table class="table hidden" id="wc-table">
+          <thead><tr><th>Network</th><th>Signal</th><th>Security</th><th></th></tr></thead>
+          <tbody id="wc-list"></tbody>
+        </table>
+        <form id="wc-form" class="hidden">
+          <label><span id="wc-form-title">Password</span>
+            <input name="password" type="password" autocomplete="off" minlength="8" maxlength="63"></label>
+          <div class="row">
+            <button class="primary">Join</button>
+            <button type="button" id="wc-cancel" class="ghost">Cancel</button>
+          </div>
+        </form>
+        <button type="button" id="wc-leave" class="danger hidden">Leave and broadcast own WiFi again</button>
+        <p class="result"></p>
+      </div>
       <form id="wifi-form" class="card form">
-        <h2>WiFi settings</h2>
+        <h2>Own WiFi (access point)</h2>
         <label>WiFi name (SSID)<input name="ssid" maxlength="32" required></label>
         <label>New password <span class="muted small">(only to change it, 8–63 characters)</span>
           <input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="63"></label>
@@ -258,8 +278,13 @@
         <label class="check"><input type="checkbox" id="leds-on"> LEDs on <span class="muted small">(red power · green WiFi · blue LTE)</span></label>
         <label>Time zone
           <select id="tz">
-            <option>Asia/Seoul</option><option>UTC</option><option>Asia/Tokyo</option><option>Asia/Shanghai</option>
-            <option>Europe/London</option><option>America/New_York</option><option>America/Los_Angeles</option>
+            <option>UTC</option>
+            <option>Asia/Ho_Chi_Minh</option><option>Asia/Bangkok</option><option>Asia/Jakarta</option>
+            <option>Asia/Singapore</option><option>Asia/Manila</option><option>Asia/Shanghai</option>
+            <option>Asia/Seoul</option><option>Asia/Tokyo</option><option>Asia/Kolkata</option><option>Asia/Dubai</option>
+            <option>Europe/London</option><option>Europe/Berlin</option><option>Europe/Moscow</option>
+            <option>America/New_York</option><option>America/Chicago</option><option>America/Los_Angeles</option>
+            <option>America/Sao_Paulo</option><option>Australia/Sydney</option>
           </select></label>
         <p class="muted small" id="time-info"></p>
       </div>
