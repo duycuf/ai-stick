@@ -1,0 +1,5 @@
+stick-router
+stick-router-*
+*.exe
+config.json
+keys.env

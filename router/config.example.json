@@ -1,0 +1,17 @@
+{
+  "listen": "127.0.0.1:20128",
+  "cooldown_seconds": 60,
+  "attempt_timeout_seconds": 60,
+  "providers": [
+    { "name": "anthropic",  "base_url": "https://api.anthropic.com/v1",  "api_key_env": "ANTHROPIC_API_KEY" },
+    { "name": "openrouter", "base_url": "https://openrouter.ai/api/v1",  "api_key_env": "OPENROUTER_API_KEY" },
+    { "name": "gemini",     "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "api_key_env": "GEMINI_API_KEY" }
+  ],
+  "routes": {
+    "default": [
+      { "provider": "anthropic",  "model": "claude-sonnet-5-5" },
+      { "provider": "openrouter", "model": "anthropic/claude-sonnet-5.5" },
+      { "provider": "gemini",     "model": "gemini-flash-latest" }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+[Unit]
+Description=stick-router: one OpenAI-compatible endpoint with provider fallback
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+# API keys live here, one NAME=value per line, readable by root only.
+EnvironmentFile=-/etc/stick-router/keys.env
+ExecStart=/usr/local/bin/stick-router -config /etc/stick-router/config.json
+Restart=on-failure
+RestartSec=5
+MemoryMax=64M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

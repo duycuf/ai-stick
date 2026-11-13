@@ -1,0 +1,69 @@
+# stick-router
+
+One OpenAI-compatible endpoint in front of several LLM providers, with ordered fallback. Written for the AI Stick, where every megabyte counts: a single static Go binary (about 6 MB), standard library only, about 13 MB of RAM on the dongle, nothing written to disk.
+
+The assistant on the stick talks to `http://127.0.0.1:20128/v1` and asks for a **route** by name. The router tries that route's targets in order and streams back the first good answer.
+
+```
+assistant ──> stick-router ──> provider 1   (rate limited)
+                           └─> provider 2   (answers)
+```
+
+## What it does
+
+- `POST /v1/chat/completions` and any other `POST /v1/...` path: rewrites `model`, adds the provider's key, forwards the body, streams the reply back as it arrives.
+- Fallback: a network error, a timeout, or HTTP 401, 403, 404, 408, 429 or 5xx moves on to the next target. HTTP 400, 413 and 422 mean the request itself is wrong and go straight back to the client.
+- Cooldown: a target that just failed is tried last for `cooldown_seconds`.
+- `GET /v1/models` lists the route names. `GET /stats` shows requests, errors and token counts per target (in memory, reset on restart). `GET /health` needs no key.
+- The response header `X-Stick-Router-Target` says which target answered.
+
+What it does not do: translate between API formats (every provider must speak the OpenAI chat format), log in with subscription accounts, cache, or compress prompts.
+
+## Model names
+
+| The client sends | The router uses |
+|---|---|
+| a route name, e.g. `default` | that route's targets, in order |
+| `provider/model`, e.g. `openrouter/openai/gpt-5` | that provider only, no fallback |
+| anything else | the `default` route, if there is one |
+
+## Configure
+
+Copy [`config.example.json`](config.example.json) to `/etc/stick-router/config.json` and edit it. The model ids in the example are placeholders: use the ids your providers list.
+
+Keys stay out of the config file. Put them in `/etc/stick-router/keys.env`, readable by root only:
+
+```shell
+sudo install -m 600 /dev/null /etc/stick-router/keys.env
+sudoedit /etc/stick-router/keys.env     # ANTHROPIC_API_KEY=... one per line
+stick-router -check                     # validates the config, then exits
+```
+
+| Setting | Default | |
+|---|---|---|
+| `listen` | `127.0.0.1:20128` | keep it on localhost unless other machines need it |
+| `api_key` / `api_key_env` | none | key that clients must send as `Authorization: Bearer ...`; set it if `listen` is not localhost |
+| `cooldown_seconds` | 60 | |
+| `attempt_timeout_seconds` | 60 | wait for response headers before moving on |
+| `providers[].headers` | none | extra request headers for that provider |
+
+## Build and install
+
+```shell
+cd router
+go test ./...
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o stick-router .
+
+# on the stick
+sudo install -m 755 stick-router /usr/local/bin/
+sudo install -m 644 stick-router.service /etc/systemd/system/
+sudo systemctl enable --now stick-router
+journalctl -u stick-router -f          # one line per request, no message contents
+```
+
+No Go on your machine? Build in Docker:
+
+```shell
+docker run --rm -v "$PWD:/src" -w /src -e GOOS=linux -e GOARCH=arm64 -e CGO_ENABLED=0 \
+    golang:1.26 go build -trimpath -ldflags='-s -w' -o stick-router .
+```
