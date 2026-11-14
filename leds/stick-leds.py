@@ -19,6 +19,10 @@ A light that sits still means "fine". Anything that blinks wants your attention
 
 All good = blue steady, green off, red off.
 
+While an update is being installed (the file /run/stick-updating exists), blue and red blink
+alternately, so you can see from across the room that the stick is busy and should not be unplugged.
+Update scripts create that file when they start and remove it when they finish.
+
 Every blink is done by this program, five steps a second, because the postmarketOS kernel on
 these sticks has no "timer" LED trigger. At start every LED lights for two seconds.
 Boards with fewer LEDs simply show fewer of the three answers.
@@ -50,6 +54,8 @@ DEFAULTS = {
     "min_free_mb": 300,
     "check_seconds": 10,
 }
+STATE_FILE = "/run/stick-leds.json"   # what each light is showing, for the admin page
+UPDATING = "/run/stick-updating"   # created by update scripts while they work
 STEP = 0.2            # seconds per loop step; "fast" toggles every step, "slow" every five steps
 
 
@@ -83,7 +89,8 @@ class Led:
             write(f"{self.dir}/trigger", "none")         # we drive brightness ourselves
 
     def show(self, step):
-        want = {"off": 0, "on": 1, "slow": (step // 5) % 2, "fast": step % 2}[self.pattern]
+        want = {"off": 0, "on": 1, "slow": (step // 5) % 2, "fast": step % 2,
+                "alt_a": (step // 2) % 2, "alt_b": 1 - (step // 2) % 2}[self.pattern]
         if want != self.level and os.path.isdir(self.dir):
             write(f"{self.dir}/brightness", want)
             self.level = want
@@ -172,7 +179,7 @@ def main():
         led.show(0)
     time.sleep(2)
     green.pattern, blue.pattern, red.pattern = "off", "off", "on"    # red stays on until the first full check
-    health, busy, step = None, False, 0
+    health, busy, step, published = None, False, 0, None
     next_check = 0.0
     while True:
         if time.monotonic() >= next_check:               # the slow checks; LEDs hold their pattern meanwhile
@@ -180,12 +187,29 @@ def main():
             next_check = time.monotonic() + cfg["check_seconds"]
         if step % 5 == 0:                                # once a second: is a message being answered?
             busy = in_flight(cfg["router_health"]) > 0
+        if os.path.exists(UPDATING):                     # an update is being installed: blue and red take turns
+            blue.pattern, red.pattern, green.pattern = "alt_a", "alt_b", "off"
+            for led in (green, blue, red):
+                led.show(step)
+            step += 1
+            time.sleep(STEP)
+            continue
         blue.pattern = "off" if not health["wifi"] else "slow" if not health["internet"] else "on"
         green.pattern = "fast" if busy else "off"
         red.pattern = ("fast" if health["urgent"] else "on" if not health["services"]
                        else "slow" if not health["model"] else "off")
         for led in (green, blue, red):
             led.show(step)
+        state = (green.pattern, blue.pattern, red.pattern, json.dumps(health, sort_keys=True))
+        if state != published:                           # tell the admin page what the lights mean right now
+            published = state
+            try:
+                with open(STATE_FILE + ".tmp", "w") as f:
+                    json.dump({"green": green.pattern, "blue": blue.pattern, "red": red.pattern,
+                               "updating": False, "health": health}, f)
+                os.replace(STATE_FILE + ".tmp", STATE_FILE)
+            except OSError:
+                pass
         step += 1
         time.sleep(STEP)
 
