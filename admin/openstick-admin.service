@@ -2,15 +2,16 @@
 Description=OpenStick admin web page
 After=network-online.target NetworkManager.service ModemManager.service
 Wants=network-online.target
-# Keep retrying until br0 (192.168.100.1) exists
+# Listens on every interface (USB cable and WiFi) but only answers private LAN addresses:
+# see --allow-nets in server.py. Use --listen 192.168.100.1:80 for USB cable only.
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/openstick-admin/server.py --listen 192.168.100.1:80 --config /etc/openstick-admin/config.json
+ExecStart=/usr/bin/python3 /opt/openstick-admin/server.py --listen 0.0.0.0:80 --config /etc/openstick-admin/config.json
 Restart=on-failure
 RestartSec=5
-MemoryMax=40M
+MemoryMax=50M
 Nice=5
 # Runs as root: it edits hostapd/NetworkManager settings. Light sandboxing only.
 NoNewPrivileges=yes

@@ -82,6 +82,31 @@ class Backend:
     wifi_client = {"mode": "ap", "connected": False, "ssid": None, "ip": None, "signal_dbm": None,
                    "gateway": None, "saved_ssid": None}
 
+    def assistant_get(self):
+        t = int(time.time())
+        busy = t % 20 < 6
+        return {
+            "now": t,
+            "power": {"usb_v": 4.91, "usb_v_min": 4.77, "usb_v_avg": 4.92, "window_minutes": 60, "sys_v": 3.64,
+                      "pmic_temp_c": 35.2, "cpu_temp_c": 43.0, "uptime_s": 5400, "low_voltage": False, "low_voltage_limit": 4.5},
+            "network": {"wifi": {"connected": True, "ssid": "Home WiFi", "signal_dbm": -48, "ip": "192.168.1.57",
+                                 "rx_bytes": self.rx, "tx_bytes": self.tx},
+                        "internet": True, "tailscale": {"state": "Running", "ip": "100.64.0.7", "name": "ai-stick"},
+                        "model_link": {"address": "127.0.0.1:18001", "ok": True}},
+            "services": [{"name": n, "active": True, "state": "running", "restarts": 0, "since": "Sat 2026-11-14 01:30:12 +07"}
+                         for n in ("zeroclaw", "stick-router", "stick-leds", "tailscaled")],
+            "model": {"version": "0.3.0", "uptime_s": 5300, "in_flight": 1 if busy else 0, "cooling_down": {},
+                      "targets": [{"name": "local/qwen", "requests": 132, "errors": 3, "prompt_tokens": 810233,
+                                   "completion_tokens": 11204, "last_status": 200, "last_used": "2026-11-13T19:30:41Z"}]},
+            "coach": {"date": "2026-11-14", "weight_kg": 65.4, "kcal": 1320, "kcal_goal": 3000, "protein_g": 98,
+                      "protein_goal": 176, "meals": 4, "trained": "Lower body", "creatine": True,
+                      "workouts": [{"exercise": "squat", "sets": 3, "top_kg": 80, "reps": 8}],
+                      "reminders": [{"name": "coach-remind-evening", "next": "Sat 2026-11-14 21:30:00 +07"}],
+                      "notebook": ["2026-11-14: Record squat: 80 kg x 8 x 3 sets", "2026-11-12: Shoulder pain 4/10 on bench"]},
+            "leds": {"blue": "on", "green": "fast" if busy else "off", "red": "off", "updating": False,
+                     "health": {"wifi": True, "internet": True, "services": True, "model": True, "urgent": False}},
+        }
+
     def wifi_client_get(self):
         return dict(self.wifi_client)
 

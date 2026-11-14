@@ -33,6 +33,7 @@
   </header>
 
   <nav class="tabs">
+    <button data-tab="assistant">Assistant</button>
     <button data-tab="dash" class="active">Dashboard</button>
     <button data-tab="sms">Messages <span id="sms-badge" class="count hidden"></span></button>
     <button data-tab="wifi">WiFi</button>
@@ -44,6 +45,49 @@
 
   <main>
     <!-- Dashboard -->
+    <!-- Assistant -->
+    <section id="tab-assistant" class="tab hidden">
+      <div class="grid">
+        <div class="card">
+          <h2>Power</h2>
+          <div class="big" id="a-volt">-</div>
+          <dl class="kv" id="a-power"></dl>
+          <p class="warn hidden" id="a-volt-warn">USB voltage dropped below the limit. Try another charger or a shorter cable.</p>
+        </div>
+        <div class="card">
+          <h2>Network</h2>
+          <div class="big" id="a-net">-</div>
+          <dl class="kv" id="a-network"></dl>
+        </div>
+        <div class="card" id="a-card-model">
+          <h2>Model</h2>
+          <div class="big" id="a-busy">-</div>
+          <dl class="kv" id="a-model"></dl>
+        </div>
+        <div class="card" id="a-card-coach">
+          <h2>Today</h2>
+          <div class="big" id="a-kcal">-</div>
+          <dl class="kv" id="a-coach"></dl>
+        </div>
+        <div class="card">
+          <h2>Services</h2>
+          <dl class="kv" id="a-services"></dl>
+        </div>
+        <div class="card" id="a-card-leds">
+          <h2>Lights</h2>
+          <dl class="kv" id="a-leds"></dl>
+        </div>
+      </div>
+      <div class="card hidden" id="a-card-notebook">
+        <h2>Notebook</h2>
+        <ul class="plain" id="a-notebook"></ul>
+      </div>
+      <div class="card hidden" id="a-card-reminders">
+        <h2>Next reminders</h2>
+        <dl class="kv" id="a-reminders"></dl>
+      </div>
+    </section>
+
     <section id="tab-dash" class="tab">
       <div class="grid">
         <div class="card">

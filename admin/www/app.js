@@ -5,6 +5,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 let csrf = null;
 let pollTimer = null;
+let assistTimer = null;
 let lastWan = null;
 
 // ---------- Common ----------
@@ -107,10 +108,12 @@ $("#logout").addEventListener("click", async () => {
 });
 
 // ---------- Tabs ----------
-const loaders = { dash: loadStatus, sms: loadSms, wifi: loadWifi, wan: loadWan, clients: loadClients, diag: loadDiag, device: loadDevice };
+const loaders = { assistant: loadAssistant, dash: loadStatus, sms: loadSms, wifi: loadWifi, wan: loadWan, clients: loadClients, diag: loadDiag, device: loadDevice };
 $$(".tabs button").forEach((b) => b.addEventListener("click", () => openTab(b.dataset.tab)));
 
 function openTab(name) {
+  clearInterval(assistTimer);
+  if (name === "assistant") assistTimer = setInterval(() => loadAssistant().catch(() => {}), 5000);
   $$(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   $$(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== `tab-${name}`));
   try { localStorage.setItem("osa-tab", name); } catch { /* ignore */ }
@@ -123,9 +126,9 @@ function enterApp() {
   $("#app").classList.remove("hidden");
   let tab = location.hash.slice(1);
   if (!loaders[tab]) {
-    try { tab = localStorage.getItem("osa-tab") || "dash"; } catch { tab = "dash"; }
+    try { tab = localStorage.getItem("osa-tab") || "assistant"; } catch { tab = "assistant"; }
   }
-  openTab(loaders[tab] ? tab : "dash");
+  openTab(loaders[tab] ? tab : "assistant");
   startPoll();
 }
 
@@ -448,6 +451,92 @@ $("#sms-form").addEventListener("submit", (e) => {
     } catch (err) { setResult(f, err.message, false); }
   });
 });
+
+// ---------- Assistant ----------
+const LED_TEXT = {
+  blue: { on: "network is up", slow: "WiFi joined, no internet", off: "no WiFi", alt_a: "updating" },
+  green: { fast: "answering a message", off: "idle" },
+  red: { off: "no fault", slow: "model server unreachable", on: "a service is down (or booting)", fast: "too hot or disk nearly full", alt_b: "updating" },
+};
+const LED_SHAPE = { on: "steady", off: "off", slow: "slow blink", fast: "fast blink", alt_a: "alternating", alt_b: "alternating" };
+const fmtV = (v) => (v == null ? "-" : `${v.toFixed(2)} V`);
+const fmtCount = (n) => (n == null ? "-" : Number(n).toLocaleString("en-US"));
+
+async function loadAssistant() {
+  const a = await api("/api/assistant");
+  const p = a.power || {};
+  $("#a-volt").textContent = p.usb_v == null ? "no sensor" : fmtV(p.usb_v);
+  $("#a-volt").style.color = p.low_voltage ? "var(--danger)" : "";
+  $("#a-volt-warn").classList.toggle("hidden", !p.low_voltage);
+  kv($("#a-power"), [
+    ["USB input", fmtV(p.usb_v)],
+    [`Lowest (${p.window_minutes || 0} min)`, fmtV(p.usb_v_min)],
+    ["Average", fmtV(p.usb_v_avg)],
+    ["System rail", fmtV(p.sys_v)],
+    ["CPU", dash(p.cpu_temp_c, " °C")],
+    ["Power chip", dash(p.pmic_temp_c, " °C")],
+    ["Uptime", fmtDur(p.uptime_s)],
+  ]);
+
+  const n = a.network || {}, w = n.wifi;
+  $("#a-net").textContent = n.internet ? "Online" : w && w.connected ? "WiFi, no internet" : "Offline";
+  $("#a-net").style.color = n.internet ? "var(--ok)" : "var(--danger)";
+  kv($("#a-network"), [
+    ["WiFi", w && w.connected ? w.ssid : w ? "reconnecting…" : "access point mode"],
+    ["Signal", w && w.signal_dbm != null ? `${w.signal_dbm} dBm` : "-"],
+    ["Address", (w && w.ip) || "-"],
+    ["Tailscale", n.tailscale ? `${n.tailscale.state || "?"}${n.tailscale.ip ? ` · ${n.tailscale.ip}` : ""}` : "not installed"],
+    ["Model server link", n.model_link ? (n.model_link.ok ? "reachable" : "unreachable") : "-"],
+  ]);
+
+  const m = a.model;
+  $("#a-card-model").classList.toggle("hidden", !m);
+  if (m) {
+    $("#a-busy").textContent = m.in_flight ? `Answering (${m.in_flight})` : "Idle";
+    $("#a-busy").style.color = m.in_flight ? "var(--primary)" : "";
+    const t = m.targets[0] || {};
+    kv($("#a-model"), [
+      ["Target", t.name || "-"],
+      ["Requests", fmtCount(t.requests)],
+      ["Errors", fmtCount(t.errors)],
+      ["Tokens in / out", t.name ? `${fmtCount(t.prompt_tokens)} / ${fmtCount(t.completion_tokens)}` : "-"],
+      ["Last call", t.last_used ? `${new Date(t.last_used).toLocaleTimeString()} · HTTP ${t.last_status}` : "-"],
+      ["Router", `v${m.version} · up ${fmtDur(m.uptime_s)}`],
+    ]);
+  }
+
+  const c = a.coach;
+  $("#a-card-coach").classList.toggle("hidden", !c);
+  $("#a-card-notebook").classList.toggle("hidden", !c || !c.notebook.length);
+  $("#a-card-reminders").classList.toggle("hidden", !c || !c.reminders.length);
+  if (c) {
+    $("#a-kcal").textContent = `${fmtCount(c.kcal)} / ${fmtCount(c.kcal_goal)} kcal`;
+    kv($("#a-coach"), [
+      ["Protein", `${c.protein_g} / ${c.protein_goal ?? "-"} g`],
+      ["Weight", c.weight_kg != null ? `${c.weight_kg} kg` : "not weighed"],
+      ["Meals logged", `${c.meals}`],
+      ["Training", c.workouts.length
+        ? c.workouts.map((x) => `${x.exercise} ${x.top_kg ? `${x.top_kg}×` : ""}${x.reps}×${x.sets}`).join(", ")
+        : c.trained || "nothing logged"],
+      ["Creatine", c.creatine ? "taken" : "not yet"],
+    ]);
+    $("#a-notebook").replaceChildren(...c.notebook.map((line) => {
+      const li = document.createElement("li"); li.textContent = line; return li;
+    }));
+    kv($("#a-reminders"), c.reminders.map((r) => [r.name.replace("coach-", "").replace("remind-", ""), r.next]));
+  }
+
+  kv($("#a-services"), (a.services || []).map((s) =>
+    [s.name, `${s.active ? "running" : s.state || "stopped"}${s.restarts ? ` · ${s.restarts} restarts` : ""}`]));
+  $$("#a-services dd").forEach((dd, i) => { dd.style.color = (a.services[i] || {}).active ? "var(--ok)" : "var(--danger)"; });
+
+  const l = a.leds;
+  $("#a-card-leds").classList.toggle("hidden", !l);
+  if (l) {
+    kv($("#a-leds"), ["blue", "green", "red"].map((k) =>
+      [k[0].toUpperCase() + k.slice(1), `${LED_SHAPE[l[k]] || l[k]} · ${(LED_TEXT[k] || {})[l[k]] || ""}`]));
+  }
+}
 
 // ---------- WiFi ----------
 const chSel = $('#wifi-form select[name="channel"]');

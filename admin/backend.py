@@ -12,6 +12,7 @@ import time
 
 import netctl
 import sms
+import assistant
 import systools
 import wificlient
 
@@ -333,6 +334,12 @@ class Backend:
             if wificlient.mode() == "ap":   # in client mode the settings are kept for later
                 run(["systemctl", "restart", "hostapd"], timeout=30)
         return {"ok": True, "applied": sorted(k for k in changes if k != "wpa_passphrase") + (["password"] if "wpa_passphrase" in changes else [])}
+
+    # ================= Assistant overview =================
+    def assistant_get(self):
+        if not hasattr(self, "_assistant"):
+            self._assistant = assistant.Assistant()
+        return self._assistant.overview()
 
     # ================= WiFi client (join another network) =================
     def wifi_client_get(self):
