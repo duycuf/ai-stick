@@ -14,7 +14,7 @@ assistant ──> stick-router ──> provider 1   (rate limited)
 - `POST /v1/chat/completions` and any other `POST /v1/...` path: rewrites `model`, adds the provider's key, forwards the body, streams the reply back as it arrives.
 - Fallback: a network error, a timeout, or HTTP 401, 403, 404, 408, 429 or 5xx moves on to the next target. HTTP 400, 413 and 422 mean the request itself is wrong and go straight back to the client.
 - Cooldown: a target that just failed is tried last for `cooldown_seconds`.
-- `GET /v1/models` lists the route names. `GET /stats` shows requests, errors and token counts per target (in memory, reset on restart). `GET /health` needs no key.
+- `GET /v1/models` lists the route names. `GET /stats` shows requests, errors and token counts per target (in memory, reset on restart), and how many requests are in flight. `GET /health` needs no key.
 - The response header `X-Stick-Router-Target` says which target answered.
 
 What it does not do: translate between API formats (every provider must speak the OpenAI chat format), log in with subscription accounts, cache, or compress prompts.
@@ -46,6 +46,8 @@ stick-router -check                     # validates the config, then exits
 | `cooldown_seconds` | 60 | |
 | `attempt_timeout_seconds` | 60 | wait for response headers before moving on |
 | `providers[].headers` | none | extra request headers for that provider |
+| `providers[].body` | none | extra top-level JSON fields set on every request, e.g. to turn a model's thinking mode off |
+| `providers[].first_tool` | none | name of a tool the model must call first on every turn that ends with a user message. Small models skip tools now and then; this turns "always run the message through my program first" into a property of the request. Turns that end with a tool result are left alone |
 
 ## Build and install
 

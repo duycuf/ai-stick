@@ -28,7 +28,7 @@ import (
 	"time"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 type Provider struct {
 	Name      string            `json:"name"`
@@ -39,6 +39,12 @@ type Provider struct {
 	// Extra top-level JSON fields set on every request body sent to this provider, overriding the
 	// client's value, e.g. {"chat_template_kwargs": {"enable_thinking": false}} for a vLLM Qwen.
 	Body map[string]json.RawMessage `json:"body"`
+	// Name of a tool the model must call first on every turn that ends with a user message.
+	// Small models skip tools now and then; this makes "always run the message through the
+	// program before answering" a property of the request instead of a hope in the prompt.
+	// Turns that end with a tool result are left alone, so the model can still answer or use
+	// other tools afterwards.
+	FirstTool string `json:"first_tool"`
 }
 
 type Target struct {
@@ -327,6 +333,9 @@ func (r *Router) handleProxy(w http.ResponseWriter, req *http.Request) {
 		for k, v := range p.Body {
 			send[k] = v
 		}
+		if p.FirstTool != "" {
+			forceFirstTool(send, p.FirstTool)
+		}
 		send["model"], _ = json.Marshal(t.Model)
 		out, _ := json.Marshal(send)
 		up, err := http.NewRequestWithContext(req.Context(), http.MethodPost, p.BaseURL+strings.TrimPrefix(req.URL.Path, "/v1"), bytes.NewReader(out))
@@ -391,6 +400,32 @@ func (r *Router) handleProxy(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	writeError(w, http.StatusBadGateway, "no provider could be reached")
+}
+
+// forceFirstTool sets tool_choice to the named function when the conversation ends with a user
+// message and the request offers that tool. It changes nothing otherwise.
+func forceFirstTool(send map[string]json.RawMessage, name string) {
+	var msgs []struct {
+		Role string `json:"role"`
+	}
+	if json.Unmarshal(send["messages"], &msgs) != nil || len(msgs) == 0 || msgs[len(msgs)-1].Role != "user" {
+		return
+	}
+	var tools []struct {
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	if json.Unmarshal(send["tools"], &tools) != nil {
+		return
+	}
+	for _, t := range tools {
+		if t.Function.Name == name {
+			send["tool_choice"], _ = json.Marshal(map[string]any{
+				"type": "function", "function": map[string]string{"name": name}})
+			return
+		}
+	}
 }
 
 func copyStream(w http.ResponseWriter, src io.Reader, sniff *usageSniffer) {

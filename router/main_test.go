@@ -253,6 +253,35 @@ func TestClientKeyIsRequiredWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestFirstToolIsForcedOnlyOnUserTurns(t *testing.T) {
+	var got []string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]json.RawMessage
+		json.NewDecoder(r.Body).Decode(&body)
+		got = append(got, string(body["tool_choice"]))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer up.Close()
+	s := newTestRouter(t, Config{
+		Providers: []Provider{{Name: "a", BaseURL: up.URL + "/v1", FirstTool: "coach__coach_log"}},
+		Routes:    map[string][]Target{"default": {{"a", "m"}}},
+	})
+	tools := `"tools":[{"type":"function","function":{"name":"coach__coach_log"}},{"type":"function","function":{"name":"web_search_tool"}}]`
+	post(t, s.URL, "", `{"model":"x","messages":[{"role":"user","content":"hi"}],`+tools+`}`)
+	post(t, s.URL, "", `{"model":"x","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":null},{"role":"tool","content":"{}"}],`+tools+`}`)
+	post(t, s.URL, "", `{"model":"x","messages":[{"role":"user","content":"hi"}]}`)
+	post(t, s.URL, "", `{"model":"x","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"other"}}]}`)
+	if len(got) != 4 || !strings.Contains(got[0], `"coach__coach_log"`) {
+		t.Fatalf("user turn should force the tool, got %q", got)
+	}
+	for i := 1; i < 4; i++ {
+		if got[i] != "" {
+			t.Fatalf("request %d must not be forced, got %q", i, got[i])
+		}
+	}
+}
+
 func TestConfigValidation(t *testing.T) {
 	bad := []Config{
 		{},
