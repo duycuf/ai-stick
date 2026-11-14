@@ -94,6 +94,7 @@ class Backend:
         self.settings = netctl.Settings("/var/lib/openstick-admin/settings.json")
         self.msgs.on_inbound = self._notify_telegram      # forward to Telegram on receive (if configured)
         threading.Thread(target=self._thermal_loop, name="thermal", daemon=True).start()
+        self.assistant = assistant.Assistant()             # starts sampling the USB voltage right away
         self.net = netctl.NetCtl(self.settings)            # data usage, device blocking (nft inet osa)
         self.sys = systools.SysTools(self.settings, wan_connected=self._wan_up)
         # detailed signal values (RSRP etc.) only refresh once a polling rate is set
@@ -337,9 +338,7 @@ class Backend:
 
     # ================= Assistant overview =================
     def assistant_get(self):
-        if not hasattr(self, "_assistant"):
-            self._assistant = assistant.Assistant()
-        return self._assistant.overview()
+        return self.assistant.overview()
 
     # ================= WiFi client (join another network) =================
     def wifi_client_get(self):

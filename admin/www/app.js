@@ -470,7 +470,7 @@ async function loadAssistant() {
   $("#a-volt-warn").classList.toggle("hidden", !p.low_voltage);
   kv($("#a-power"), [
     ["USB input", fmtV(p.usb_v)],
-    [`Lowest (${p.window_minutes || 0} min)`, fmtV(p.usb_v_min)],
+    [p.window_minutes ? `Lowest (${p.window_minutes} min)` : "Lowest (just started)", fmtV(p.usb_v_min)],
     ["Average", fmtV(p.usb_v_avg)],
     ["System rail", fmtV(p.sys_v)],
     ["CPU", dash(p.cpu_temp_c, " °C")],
