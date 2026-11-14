@@ -19,9 +19,10 @@ Tested on one JZ01-45-V33 dongle (2026-11-13), image built by this repo's workfl
 
 | Folder | What it is |
 |---|---|
-| [`admin/`](admin/README.md) | The web admin page on `http://192.168.100.1/` (USB cable). Now also joins WiFi networks and shows the WiFi uplink on the dashboard |
-| [`router/`](router/README.md) | `stick-router`: one OpenAI-compatible endpoint in front of several model providers, with fallback. A single 6 MB Go binary, about 13 MB of RAM |
-| [`leds/`](leds/stick-leds.py) | Status LEDs: blue = network, green = assistant busy, red = trouble |
+| [`admin/`](admin/README.md) | The web admin page. Joins WiFi networks, and its **Assistant** tab shows USB voltage, network, model traffic, services, the lights and today's log. Answers on the USB cable and on the home LAN, never on VPN or public addresses |
+| [`router/`](router/README.md) | `stick-router`: one OpenAI-compatible endpoint in front of several model providers, with fallback. Can force a small model to call a given tool first on every user turn. A single 6 MB Go binary, about 13 MB of RAM |
+| [`leds/`](leds/stick-leds.py) | Status LEDs: blue = network, green = assistant busy, red = trouble, blue and red alternating = updating |
+| [`scripts/reduce-writes.sh`](scripts/reduce-writes.sh) | Moves the journal to RAM and relaxes filesystem flushing. On the test stick idle writes to the eMMC went from about 2 MB to about 90 KB a minute |
 | [`flash/`](flash/flash_edl.py) | Flash the image over EDL, no fastboot needed |
 
 ## Target hardware
