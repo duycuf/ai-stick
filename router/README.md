@@ -48,6 +48,24 @@ stick-router -check                     # validates the config, then exits
 | `providers[].headers` | none | extra request headers for that provider |
 | `providers[].body` | none | extra top-level JSON fields set on every request, e.g. to turn a model's thinking mode off |
 | `providers[].first_tool` | none | name of a tool the model must call first on every turn that ends with a user message. Small models skip tools now and then; this turns "always run the message through my program first" into a property of the request. Turns that end with a tool result are left alone |
+| `providers[].reply_guard` | false | enforce the `guard` a tool result asks for: send the tool's `reply` word for word and filter what the model adds. See [Reply guard](#reply-guard) |
+
+## Reply guard
+
+A small model follows "copy this text, then add one sentence" most of the time. When the text carries numbers someone acts on, most of the time is not enough. With `reply_guard` on, a tool can ask the router to make it certain by returning two extra fields in its JSON result:
+
+```json
+{"reply": "Logged 260 kcal. Today 700/3000.",
+ "guard": {"mode": "reply_then", "max_extra": 1, "digits": "none", "ban": ["o'clock"]}}
+```
+
+| `mode` | What the client receives |
+|---|---|
+| `verbatim` | `reply`, exactly. The model is not called at all, so the answer takes milliseconds |
+| `reply_then` | `reply` first, exactly, then at most `max_extra` sentences from the model that pass the filter |
+| `free` | no fixed reply (a chat turn): the model's sentences that pass the filter, or `fallback` when none does |
+
+A sentence is dropped when it contains a word from `ban`, or a number it should not contain: with `"digits": "none"` any digit; with `"known"` (the default) a number of two or more digits that appears neither in the tool result nor in the user's last message; with `"any"` nothing. Fields listed in `ignore` do not count as known. Leaked `<think>` blocks are always removed. An answer made of tool calls passes through untouched, and so does every turn whose tool result has no `guard`.
 
 ## Build and install
 

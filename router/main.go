@@ -28,7 +28,7 @@ import (
 	"time"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 type Provider struct {
 	Name      string            `json:"name"`
@@ -45,6 +45,9 @@ type Provider struct {
 	// Turns that end with a tool result are left alone, so the model can still answer or use
 	// other tools afterwards.
 	FirstTool string `json:"first_tool"`
+	// Enforce the "guard" a tool result asks for: send its reply word for word and filter what
+	// the model adds. See guard.go. Off unless set; tool results without a guard are untouched.
+	ReplyGuard bool `json:"reply_guard"`
 }
 
 type Target struct {
@@ -336,6 +339,15 @@ func (r *Router) handleProxy(w http.ResponseWriter, req *http.Request) {
 		if p.FirstTool != "" {
 			forceFirstTool(send, p.FirstTool)
 		}
+		var guard *replyGuard
+		if p.ReplyGuard {
+			if guard = newReplyGuard(send); guard != nil && guard.rules.Mode == "verbatim" {
+				w.Header().Set("X-Stick-Router-Target", key)
+				guard.answerWithoutModel(w, t.Model)
+				log.Printf("route=%s target=%s guard=verbatim ms=%d", model, key, time.Since(start).Milliseconds())
+				return
+			}
+		}
 		send["model"], _ = json.Marshal(t.Model)
 		out, _ := json.Marshal(send)
 		up, err := http.NewRequestWithContext(req.Context(), http.MethodPost, p.BaseURL+strings.TrimPrefix(req.URL.Path, "/v1"), bytes.NewReader(out))
@@ -379,9 +391,18 @@ func (r *Router) handleProxy(w http.ResponseWriter, req *http.Request) {
 			w.Header()[k] = vs
 		}
 		w.Header().Set("X-Stick-Router-Target", key)
+		if guard != nil && resp.StatusCode == http.StatusOK {
+			w.Header().Del("Content-Length") // the body is rewritten
+		} else {
+			guard = nil
+		}
 		w.WriteHeader(resp.StatusCode)
 		sniff := &usageSniffer{sse: strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")}
-		copyStream(w, resp.Body, sniff)
+		if guard != nil {
+			guard.rewrite(w, resp.Body, sniff)
+		} else {
+			copyStream(w, resp.Body, sniff)
+		}
 		resp.Body.Close()
 		prompt, completion := sniff.result()
 		failed := resp.StatusCode >= 400
