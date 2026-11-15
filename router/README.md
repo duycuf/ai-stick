@@ -49,7 +49,7 @@ stick-router -check                     # validates the config, then exits
 | `providers[].body` | none | extra top-level JSON fields set on every request, e.g. to turn a model's thinking mode off |
 | `providers[].first_tool` | none | name of a tool the model must call first on every turn that ends with a user message. Small models skip tools now and then; this turns "always run the message through my program first" into a property of the request. Turns that end with a tool result are left alone |
 | `providers[].first_tool_arg` | none | the argument of `first_tool` that takes the user's message as it is. When set, the router writes the first tool call itself: the tool gets the person's exact words, the turn costs no tokens, and with a `verbatim` reply guard a whole exchange needs no model at all |
-| `providers[].first_tool_trim` | none | a pattern removed from the start of the user's message before it goes to the tool, e.g. `^\[[^\]]*\]\s*` for a client that puts a timestamp in front |
+| `providers[].first_tool_trim` | none | a pattern removed from the start of the user's message before it goes to the tool, e.g. `(?s)^.*\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}\]\s*` for a client that wraps the message in recalled memory and context and puts a time stamp right before what the person typed. Check what your client really sends before switching this on: a wrapper that is not removed reaches the tool as if the person had typed it |
 | `providers[].reply_guard` | false | enforce the `guard` a tool result asks for: send the tool's `reply` word for word and filter what the model adds. See [Reply guard](#reply-guard) |
 
 ## Reply guard

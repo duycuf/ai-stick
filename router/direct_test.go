@@ -55,6 +55,40 @@ func TestFirstToolIsCalledWithoutTheModel(t *testing.T) {
 	}
 }
 
+// A chat client may wrap the message: recalled memory with older time-stamped lines, a context
+// paragraph, then the time stamp and what the person typed. Only the last part belongs to the tool.
+func TestTrimKeepsOnlyWhatFollowsTheLastTimeStamp(t *testing.T) {
+	u := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer u.Close()
+	s := newTestRouter(t, Config{
+		Providers: []Provider{{Name: "a", BaseURL: u.URL + "/v1", FirstTool: "log", FirstToolArg: "text",
+			FirstToolTrim: `(?s)^.*\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}\]\s*`}},
+		Routes: map[string][]Target{"default": {{Provider: "a", Model: "m"}}},
+	})
+	wrapped := "[Memory context]\n- [from 2026-11-14] key_75: [2026-11-14 21:31:38 +07:00] dinner: 450g rice\n50g pork\n[/Memory context]\n\n" +
+		"[turn-context] time=19:24:03 date=2026-11-15 tz=+07:00 message_id=x_88. Use delivery={\"mode\":\"announce\"}.\n\n\n\n" +
+		"[2026-11-15 19:24:03 +07:00] 200g meat\nand rice"
+	msg, _ := json.Marshal(wrapped)
+	_, body := post(t, s.URL, "", `{"model":"default",`+logTool+`,"messages":[{"role":"user","content":`+string(msg)+`}]}`)
+	var c struct {
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					Function struct{ Arguments string } `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal([]byte(body), &c) != nil || len(c.Choices) != 1 || len(c.Choices[0].Message.ToolCalls) != 1 {
+		t.Fatalf("body = %s", body)
+	}
+	var args map[string]string
+	json.Unmarshal([]byte(c.Choices[0].Message.ToolCalls[0].Function.Arguments), &args)
+	if args["text"] != "200g meat\nand rice" {
+		t.Fatalf("tool got %q", args["text"])
+	}
+}
+
 func TestDirectCallLeavesOtherTurnsToTheModel(t *testing.T) {
 	u := newUpstream(t, okJSON)
 	s := directRouter(t, u.Server)
