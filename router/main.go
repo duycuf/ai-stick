@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -28,7 +29,7 @@ import (
 	"time"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 type Provider struct {
 	Name      string            `json:"name"`
@@ -48,6 +49,14 @@ type Provider struct {
 	// Enforce the "guard" a tool result asks for: send its reply word for word and filter what
 	// the model adds. See guard.go. Off unless set; tool results without a guard are untouched.
 	ReplyGuard bool `json:"reply_guard"`
+	// The argument of first_tool that takes the user's message as it is. When set, the router
+	// writes that first tool call itself instead of asking the model for it. See direct.go.
+	FirstToolArg string `json:"first_tool_arg"`
+	// A pattern removed from the start of the user's message before it is handed to the tool,
+	// for clients that put a timestamp or a name in front of what the person typed.
+	FirstToolTrim string `json:"first_tool_trim"`
+
+	firstToolTrim *regexp.Regexp
 }
 
 type Target struct {
@@ -135,6 +144,13 @@ func NewRouter(cfg Config) (*Router, error) {
 			if p.APIKey == "" {
 				return nil, fmt.Errorf("provider %s: environment variable %s is empty", p.Name, p.APIKeyEnv)
 			}
+		}
+		if p.FirstToolTrim != "" {
+			re, err := regexp.Compile(p.FirstToolTrim)
+			if err != nil {
+				return nil, fmt.Errorf("provider %s: first_tool_trim: %v", p.Name, err)
+			}
+			p.firstToolTrim = re
 		}
 		if _, dup := r.providers[p.Name]; dup {
 			return nil, fmt.Errorf("provider %s is defined twice", p.Name)
@@ -338,6 +354,16 @@ func (r *Router) handleProxy(w http.ResponseWriter, req *http.Request) {
 		}
 		if p.FirstTool != "" {
 			forceFirstTool(send, p.FirstTool)
+		}
+		if p.FirstTool != "" && p.FirstToolArg != "" {
+			if text, ok := directToolCall(send, p.FirstTool, p.firstToolTrim); ok {
+				var stream bool
+				json.Unmarshal(send["stream"], &stream)
+				w.Header().Set("X-Stick-Router-Target", key)
+				writeToolCall(w, stream, t.Model, p.FirstTool, p.FirstToolArg, text)
+				log.Printf("route=%s target=%s direct=%s ms=%d", model, key, p.FirstTool, time.Since(start).Milliseconds())
+				return
+			}
 		}
 		var guard *replyGuard
 		if p.ReplyGuard {
