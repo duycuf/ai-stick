@@ -28,7 +28,7 @@ why it lives in this repository.
 | Diagnostics | upstream DNS (AdGuard ad-blocking / Cloudflare / Google / carrier, verified + reverted on failure), ping, DNS lookup, traceroute, metered speed test |
 | System | LEDs on/off (blue = LTE up), timezone, service status/restart, journal viewer |
 
-Roadmap: [`../docs/ADMIN_PAGE_PLAN.md`](../docs/ADMIN_PAGE_PLAN.md).
+Roadmap: [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
 ## SMS / MMS (`sms.py`)
 - **EPS UE mode.** These modems come up as `ps-2` (data-only attach), in which the

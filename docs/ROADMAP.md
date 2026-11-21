@@ -1,4 +1,4 @@
-# Admin page plan
+# Admin page roadmap
 
 Goal: everything the stock (vendor) admin page of these dongles offered, plus the
 features most home routers have, on top of this Debian image — without eating the

@@ -1,3 +1,10 @@
+<div align="right">
+
+[![English](https://img.shields.io/badge/English-selected-1f6feb)](README.md)
+[![Tiếng Việt](https://img.shields.io/badge/Ti%E1%BA%BFng%20Vi%E1%BB%87t-%C4%91%E1%BB%8Dc%20b%E1%BA%A3n%20ti%E1%BA%BFng%20Vi%E1%BB%87t-da3633)](README.vi.md)
+
+</div>
+
 # AI Stick
 
 Debian on a $10 4G USB dongle (Qualcomm MSM8916), built to host a personal AI assistant that you talk to over Telegram.
